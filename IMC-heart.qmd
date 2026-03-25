@@ -1,0 +1,473 @@
+---
+title: "IMC-heart"
+format: html
+editor: visual
+---
+
+## Libraries and setup
+
+```{r}
+.libPaths("/enna/nobackup/biostat/Rpackages/v4/")
+
+suppressPackageStartupMessages({
+  library(tidyverse)
+  library(tidySingleCellExperiment)
+  library(cytomapper)
+  library(EBImage)
+  library(BiocParallel)
+  library(SpatialExperiment)
+  library(simpleSeg)
+  library(ggiraph)
+})
+```
+
+
+```{r}
+masks = readRDS("./data/heart/masksList.rds")
+masks
+```
+
+```{r}
+heartSPE = readRDS("./data/heart/heartSPE_annotated.rds")
+heartSPE
+```
+
+## Calculate variance
+
+```{r eval = F}
+images = loadImages(x = "./data/heart/ROIs/",
+                    single_channel = TRUE,
+                    on_disk = FALSE,
+                    BPPARAM = BiocParallel::MulticoreParam(workers = 20))
+
+# remove metal antibody tag
+channelNames(images) = sub("^[0-9]+[A-Za-z]+_", "", channelNames(images))
+
+# remove excluded images
+mcols(images) = S4Vectors::DataFrame(ROI = names(images))
+images = images[names(masks)]
+
+saveRDS(images, "./data/heart/imagesList.rds")
+```
+
+
+```{r eval = F}
+# measure sd
+spe = measureObjects(mask = masks,
+                           image = images, 
+                           img_id = "ROI",
+                           return_as = "spe",
+                           feature_types = "basic",
+                           basic_feature = "sd",
+                           BPPARAM = BiocParallel::MulticoreParam(workers = 20))
+```
+
+```{r eval = F}
+# remove some of the noisy ROIs 
+spe = spe[, !spe$ROI %in% c("ROI04", "ROI08")]
+
+varMat = assay(spe, "counts_sd")^2
+assay(heartSPE, "var", withDimnames = FALSE) = varMat
+saveRDS(heartSPE, "./data/heart/heartSPE_annotated.rds")
+```
+
+
+## Calculate pixel-level correlation
+
+```{r}
+computePixelCorrelations = function(images, masks, 
+                                    method = "pearson",
+                                    minPixels = 3,
+                                    BPPARAM = BiocParallel::SerialParam()) {
+  
+  chNames = channelNames(images)
+  nChannels = length(chNames)
+  
+  # precompute pair names once
+  dummyMat = matrix(0, nChannels, nChannels, dimnames = list(chNames, chNames))
+  idx = which(upper.tri(dummyMat), arr.ind = TRUE)
+  pairNames = paste(chNames[idx[, 1]], chNames[idx[, 2]], sep = "_vs_")
+  
+  # process one image — will be parallelised across images
+  processImage = function(imgName) {
+    
+    imgArr  = imageData(images[[imgName]])   # [x, y, channels]
+    maskArr = imageData(masks[[imgName]])    # [x, y]
+    cellIDs = setdiff(unique(as.vector(maskArr)), 0)
+    
+    # process one cell
+    processCell = function(cell) {
+      cellPixels = which(maskArr == cell, arr.ind = TRUE)
+      if (nrow(cellPixels) < minPixels) return(NULL)
+      
+      pixelMat = sapply(seq_len(nChannels), function(ch) {
+        imgArr[cbind(cellPixels, ch)]
+      })
+      colnames(pixelMat) = chNames
+      
+      corMat = suppressWarnings(cor(pixelMat, method = method))
+      setNames(corMat[upper.tri(corMat)], pairNames)
+    }
+    
+    cellResults = lapply(cellIDs, processCell)
+    names(cellResults) = paste(imgName, cellIDs, sep = "_")
+    
+    # drop NULLs (cells below minPixels threshold)
+    cellResults[!sapply(cellResults, is.null)]
+  }
+  
+  # parallelise across images
+  imageResults = bplapply(names(images), processImage, BPPARAM = BPPARAM)
+  
+  # flatten nested list and bind into matrix
+  allResults = do.call(c, imageResults)
+  do.call(rbind, allResults)
+}
+```
+
+```{r eval = F}
+corMat = computePixelCorrelations(images = images,
+  masks = masks,
+  method = "pearson",
+  minPixels = 3,
+  BPPARAM = BiocParallel::MulticoreParam(workers = 20))
+
+saveRDS(corMat, "./data/heart/corMat.rds")
+```
+
+```{r}
+corMat = readRDS("./data/heart/corMat.rds")
+```
+
+```{r}
+# drop ROI04 and ROI08
+corMat = corMat[!grepl("ROI04|ROI08", rownames(corMat)), ]
+
+dim(corMat)
+corMat[1:5, 1:5]
+```
+
+## Variance of CD3
+
+```{r}
+heartSPE$celltype |> unique()
+```
+
+```{r}
+rownames(heartSPE)
+```
+
+
+```{r}
+varDf = heartSPE |> 
+  join_features(features = c("CD3", "CD20", "Vimentin", "MPO", "CD31"), shape = "wide", assay = "var") |> 
+  colData() |> as.data.frame() |> 
+  dplyr::rename(var_CD3 = CD3, var_CD20 = CD20, var_Vimentin = Vimentin, var_MPO = MPO, var_CD31 = CD31) |> 
+  dplyr::select(c("var_CD3", "var_CD20", "var_Vimentin", "var_MPO", "var_CD31"))
+
+meanDf = heartSPE |> 
+  join_features(features = c("CD3", "CD20", "Vimentin", "MPO", "CD31"), shape = "wide", assay = "counts") |> 
+  colData() |> as.data.frame() |> 
+  dplyr::rename(mean_CD3 = CD3, mean_CD20 = CD20, mean_Vimentin = Vimentin, mean_MPO = MPO, mean_CD31 = CD31)
+
+df = cbind(meanDf, varDf)
+
+capVal = function(x, p = 0.99) pmin(x, quantile(x, p, na.rm = TRUE))
+
+p1 = ggplot(df, aes(x = mean_CD3, y = mean_CD20, colour = var_CD3,
+                    tooltip = paste0("Celltype: ", celltype,
+                                     "\nROI: ", ROI),
+                    data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "Mean CD3", y = "Mean CD20", title = "All cells coloured by variance of CD3")
+
+p2 = ggplot(df, aes(x = log10(mean_CD3), y = log10(mean_CD20), colour = log10(var_CD3),
+                    tooltip = paste0("Celltype: ", celltype,
+                                     "\nROI: ", ROI),
+                    data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "log10(Mean CD3)", y = "log10(Mean CD20)", title = "All cells coloured by variance of log10(CD3)")
+
+girafe(ggobj = p2, width_svg = 6, height_svg = 4)
+
+```
+
+```{r}
+library(patchwork)
+
+p2 = ggplot(df, aes(x = log10(mean_CD3), y = log10(mean_CD20), colour = log10(var_CD3),
+                    tooltip = paste0("Celltype: ", celltype,
+                                     "\nROI: ", ROI),
+                    data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "log10(Mean CD3)", y = "log10(Mean CD20)", title = "All cells coloured by variance of log10(CD3)")
+
+p3 = ggplot(df, aes(x = log10(mean_CD3), y = log10(var_CD3), colour = log10(var_CD3),
+                    tooltip = paste0("Celltype: ", celltype,
+                                     "\nROI: ", ROI),
+                    data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "log10(Mean CD3)", y = "log10(Var CD3)", title = "Mean vs Variance of CD3")
+
+combinedPlot = wrap_plots(p2, p3, ncol = 2)
+
+girafe(ggobj = combinedPlot,
+       width_svg = 12, height_svg = 4,
+       options = list(
+         opts_hover(css = "fill-opacity:1; stroke:black; stroke-width:0.5px;"),
+         opts_hover_inv(css = "opacity:0.05;")
+       ))
+```
+
+
+```{r}
+df |> filter(log10(var_CD3) > -9.5) |> dplyr::count(ROI)
+```
+
+
+```{r}
+df |> filter(log10(var_CD3) > -9.5) |> dplyr::count(celltype)
+```
+
+
+## Variance of CD20
+
+```{r}
+p1 = ggplot(df, aes(x = mean_CD3, y = mean_CD20, colour = var_CD20,
+                    tooltip = paste0("Celltype: ", celltype,
+                                     "\nROI: ", ROI),
+                    data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "Mean CD3", y = "Mean CD20", title = "All cells coloured by variance of CD20")
+
+p2 = ggplot(df, aes(x = log10(mean_CD3), y = log10(mean_CD20), colour = log10(var_CD20),
+                    tooltip = paste0("Celltype: ", celltype,
+                                     "\nROI: ", ROI),
+                    data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "log10(Mean CD3)", y = "log10(Mean CD20)", title = "All cells coloured by variance of log10(CD20)")
+
+# mean/variance plot using ggiraf
+# pairs plot for all markers
+girafe(ggobj = p2, width_svg = 6, height_svg = 4)
+```
+
+```{r}
+p2 = ggplot(df, aes(x = log10(mean_CD3), y = log10(mean_CD20), colour = celltype,
+                    tooltip = paste0("Celltype: ", celltype,
+                                     "\nROI: ", ROI),
+                    data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  # scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "log10(Mean CD3)", y = "log10(Mean CD20)", title = "All cells coloured by variance of log10(CD20)")
+
+# mean/variance plot using ggiraf
+# pairs plot for all markers
+# check where the CD3/CD20/Vimentin population comes from, which prototype 
+girafe(ggobj = p2, width_svg = 6, height_svg = 4)
+```
+
+```{r}
+p2 = ggplot(df, aes(x = log10(mean_Vimentin), y = log10(mean_CD20), colour = celltype,
+                    tooltip = paste0("Celltype: ", celltype,
+                                     "\nROI: ", ROI),
+                    data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  # scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "log10(Mean CD3)", y = "log10(Mean CD20)", title = "All cells coloured by variance of log10(CD20)")
+
+# mean/variance plot using ggiraf
+# pairs plot for all markers
+girafe(ggobj = p2, width_svg = 6, height_svg = 4)
+```
+
+```{r}
+df |> filter(log10(var_CD20) > -9.5) |> dplyr::count(ROI)
+```
+
+```{r}
+# also mostly concentrated in this mixed CD3+ CD20+ Vimentin+ population
+df |> filter(log10(var_CD20) > -9.5) |> dplyr::count(celltype)
+```
+
+### ROI05
+
+ROI05 did have this problem of squished together CD20/CD3/Vimentin cells.
+
+
+```{r}
+p = df |> filter(ROI == "ROI05") |> 
+  ggplot(aes(x = x, y = y, colour = log10(var_CD20),
+             tooltip = paste0("Celltype: ", celltype, "\nROI: ", ROI),
+             data_id = object_id)) +
+  geom_point_interactive() +
+  scale_y_reverse() +
+  coord_equal() +
+  theme_classic() +
+  labs(title = "ROI05")
+
+girafe(ggobj = p, width_svg = 10, height_svg = 7)
+```
+
+What are the high CD20 variance cell types in ROI05?
+
+```{r}
+df |> filter(ROI == "ROI05" & log10(var_CD20) > -9.5) |> dplyr::count(celltype)
+```
+
+
+## Variance of Vimentin
+
+```{r}
+p = ggplot(df, aes(x = log10(mean_Vimentin), y = log10(mean_CD3), colour = log10(var_Vimentin),
+                   tooltip = paste0("Celltype: ", celltype, "\nROI: ", ROI),
+                   data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "log10(Mean Vimentin)", y = "log10(Mean CD3)", title = "All cells coloured by variance of Vimentin (log10 scale)")
+
+girafe(ggobj = p, width_svg = 6, height_svg = 4)
+```
+
+```{r}
+p = ggplot(df, aes(x = log10(mean_Vimentin), y = log10(mean_CD20), colour = log10(var_Vimentin),
+                   tooltip = paste0("Celltype: ", celltype, "\nROI: ", ROI),
+                   data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "log10(Mean Vimentin)", y = "log10(Mean CD20)", title = "All cells coloured by variance of Vimentin (log10 scale)")
+
+girafe(ggobj = p, width_svg = 6, height_svg = 4)
+```
+
+```{r}
+df |> filter(log10(var_Vimentin) > -9.5) |> dplyr::count(ROI) |> arrange(-n)
+```
+
+```{r}
+df |> filter(log10(var_Vimentin) > -9.5) |> dplyr::count(celltype) |> arrange(-n)
+```
+
+```{r}
+df |> filter(log10(var_Vimentin) > -9.5 & ROI == "ROI05") |> dplyr::count(celltype) |> arrange(-n)
+```
+
+```{r}
+df |> filter(log10(var_Vimentin) > -9.5 & ROI == "ROI33") |> dplyr::count(celltype) |> arrange(-n)
+```
+
+
+
+### ROI05
+
+```{r}
+p = df |> filter(ROI == "ROI05") |> 
+  ggplot(aes(x = x, y = y, colour = log10(var_Vimentin),
+             tooltip = paste0("Celltype: ", celltype, "\nROI: ", ROI),
+             data_id = object_id)) +
+  geom_point_interactive() +
+  scale_y_reverse() +
+  coord_equal() +
+  theme_classic() +
+  labs(title = "ROI05")
+
+girafe(ggobj = p, width_svg = 8, height_svg = 6)
+```
+
+
+### ROI33
+
+
+```{r fig.height = 4, fig.width = 8}
+p = df |> filter(ROI == "ROI33") |> 
+  ggplot(aes(x = x, y = y, colour = log10(var_Vimentin),
+             tooltip = paste0("Celltype: ", celltype, "\nROI: ", ROI),
+             data_id = object_id)) +
+  geom_point_interactive() +
+  scale_y_reverse() +
+  coord_equal() +
+  theme_classic() +
+  labs(title = "ROI33")
+
+girafe(ggobj = p, width_svg = 8, height_svg = 4)
+```
+
+## Variance of MPO
+
+```{r}
+p = ggplot(df, aes(x = log10(mean_MPO), y = log10(mean_CD31), colour = log10(var_MPO),
+                   tooltip = paste0("Celltype: ", celltype, "\nROI: ", ROI),
+                   data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "log10(Mean MPO)", y = "log10(Mean CD31)", title = "All cells coloured by variance of MPO (log10 scale)")
+
+girafe(ggobj = p, width_svg = 6, height_svg = 4)
+```
+
+```{r}
+df |> filter(log10(var_MPO) > -9.5) |> dplyr::count(ROI) |> arrange(-n)
+```
+
+```{r}
+# endothelial cells and neutrophils are the biggest culprits
+df |> filter(log10(var_MPO) > -9.5) |> dplyr::count(celltype) |> arrange(-n)
+```
+
+### ROI22
+
+```{r}
+p = df |> filter(ROI == "ROI22") |> 
+  ggplot(aes(x = x, y = y, colour = log10(var_MPO),
+             tooltip = paste0("Celltype: ", celltype, "\nROI: ", ROI),
+             data_id = object_id)) +
+  geom_point_interactive() +
+  scale_y_reverse() +
+  theme_classic() +
+  labs(title = "ROI22")
+
+girafe(ggobj = p)
+```
+
+```{r}
+# endothelial cells and neutrophils are the biggest culprits
+df |> filter(log10(var_MPO) > -9.5 & ROI == "ROI22") |> dplyr::count(celltype) |> arrange(-n)
+```
+
+## Variance of CD31
+
+```{r}
+p = ggplot(df, aes(x = log10(mean_MPO), y = log10(mean_CD31), colour = log10(var_CD31),
+                   tooltip = paste0("Celltype: ", celltype, "\nROI: ", ROI),
+                   data_id = rownames(df))) +
+  geom_point_interactive(alpha = 0.8, size = 1.2) +
+  theme_classic() +
+  scale_colour_distiller(palette = "RdYlBu") +
+  labs(x = "log10(Mean MPO)", y = "log10(Mean CD31)", title = "All cells coloured by variance of CD31 (log10 scale)")
+
+girafe(ggobj = p, width_svg = 6, height_svg = 4)
+```
+
+```{r}
+df |> filter(log10(var_CD31) > -9.5) |> dplyr::count(ROI) |> arrange(-n)
+```
+
+
+

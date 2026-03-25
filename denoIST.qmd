@@ -1,0 +1,166 @@
+---
+title: "Untitled"
+format: html
+editor: visual
+---
+
+```{r}
+.libPaths("/enna/nobackup/biostat/Rpackages/v4/")
+suppressPackageStartupMessages({
+  library(Seurat)
+  library(rhdf5)
+  library(EBImage)
+  library(tidyverse)
+})
+
+library(DenoIST, lib.loc = "../devPackages/")
+```
+
+```{r}
+# cell boundaries
+boundaries = read.csv(gzfile("./data/XeniumBreastCancer/cell_boundaries.csv.gz"))
+head(boundaries)
+```
+
+```{r}
+# h5ls("./data/XeniumBreastCancer/cell_feature_matrix.h5")
+
+# cell/gene expression matrix
+obj = Read10X_h5("./data/XeniumBreastCancer/cell_feature_matrix.h5")
+eMat = obj$`Gene Expression`
+eMat[1:10, 1:10]
+```
+
+```{r}
+# transcripts
+tx = read.csv(gzfile("./data/XeniumBreastCancer/transcripts.csv.gz"))
+head(tx)
+```
+
+```{r}
+# cell summary
+cells = read.csv(gzfile("./data/XeniumBreastCancer/cells.csv.gz"))
+head(cells)
+```
+
+
+```{r}
+# downsample to a portion of the image 1000x1000
+subCells = cells[cells$x_centroid <= 1000 & cells$y_centroid <= 1000, ]
+subTx = tx[tx$x_location <= 1000 & tx$y_location <= 1000, ]
+subMat = eMat[, colnames(eMat) %in% as.character(subCells$cell_id)]
+
+coords = data.frame(cell_id = subCells$cell_id,
+                    x = subCells$x_centroid,
+                    y = subCells$y_centroid)
+```
+
+```{r}
+# roughyl 8k cells
+dim(subMat)     
+dim(coords)       
+nrow(subTx)      
+```
+
+```{r fig.height = 8, fig.width = 8}
+ggplot(subCells, aes(x = x_centroid, y = y_centroid)) +
+  geom_point(size = 1) +
+  coord_equal() + scale_y_reverse() +
+  theme_classic()
+```
+
+
+```{r}
+denoistRes = denoist(mat = subMat,
+                     tx = subTx,
+                     coords = coords,
+                     tx_x = "x_location",
+                     tx_y = "y_location",
+                     feature_label = "feature_name",
+                     distance = 50, # default
+                     nbins = 200, # default
+                     posterior_cutoff = 0.6, # default
+                     n_inits = 10, # default
+                     cl = 16, 
+                     verbose = TRUE)
+```
+
+
+```{r}
+gini = function(x) {
+  x = sort(x)
+  n = length(x)
+  numerator = 2 * sum(seq_along(x) * x)
+  denominator = n * sum(x)
+  if (denominator == 0) return(0)  # all zeros edge case
+  return(numerator / denominator - (n + 1) / n)
+}
+
+cellIDs = colnames(subMat)
+
+cellStats = data.frame(cellID = cellIDs,
+                       pi = sapply(denoistRes$params, function(p) p$pi),
+                       log_lik = sapply(denoistRes$params, function(p) p$log_lik),
+                       total_counts = colSums(subMat),
+                       posterior_sd = apply(confMat, 2, sd),
+                       gini = apply(confMat, 2, gini))
+
+hist(cellStats$pi,
+     main = "Distribution of π across cells",
+     xlab = "π (proportion of genes truly expressed)")
+```
+
+```{r}
+hist(cellStats$gini,
+     main = "Distribution of gini index across cells",
+     xlab = "Gini index")
+```
+
+```{r}
+geneMeans = rowMeans(confMat)
+geneSDs = apply(confMat, 1, sd)
+
+gini = function(x) {
+  x = sort(x)
+  n = length(x)
+  numerator = 2 * sum(seq_along(x) * x)
+  denominator = n * sum(x)
+  if (denominator == 0) return(0)  # all zeros edge case
+  return(numerator / denominator - (n + 1) / n)
+}
+
+geneStats = data.frame(gene = rownames(confMat),
+                       mean_posterior = geneMeans,
+                       sd_posterior = geneSDs,
+                       cv = geneSDs / geneMeans,
+                       gini = apply(confMat, 1, gini))
+
+hist(geneStats$cv, main = "Histogram of CV", xlab = c("CV"))
+```
+
+
+```{r}
+ggplot(geneStats, aes(x = mean_posterior, y = cv, label = gene)) +
+  geom_point() +
+  geom_text(size = 2, vjust = -0.5) +
+  theme_classic() +
+  labs(x = "Mean posterior probability",
+       y = "CV of posterior probability")
+```
+
+High mean + low CV = probably housekeeping, probably expressed everywhere
+Low mean + high CV = cell type-specific markers
+Low mean + low CV = not really expressed anywhere, but we don't have these anyway
+
+```{r}
+set.seed(51773)
+km = kmeans(t(subMat), centers = 17, nstart = 25)
+```
+
+
+
+
+
+
+
+
