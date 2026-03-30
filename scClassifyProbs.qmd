@@ -1,0 +1,180 @@
+---
+title: "Conditional Probabilities"
+format: html
+editor: visual
+---
+
+```{r}
+.libPaths("/enna/nobackup/biostat/Rpackages/v4/")
+
+suppressPackageStartupMessages({
+  library(SpatialDatasets)
+  library(scClassify)
+  library(tidyverse)
+  library(spicyR)
+  library(tidySingleCellExperiment)
+})
+```
+
+```{r}
+spe = spe_Amancherla_2025()
+spe
+```
+
+Paper: https://www.biorxiv.org/content/10.1101/2025.02.28.640852v1 
+
+```{r}
+colnames(colData(spe))
+```
+
+```{r}
+spe$ident |> unique()
+```
+
+
+```{r}
+# cellular/antibody rejection scores (biopsy level)
+spe$biopsy_cellular_grading |> unique()
+spe$biopsy_antibody_grading |> unique()
+```
+
+```{r}
+# cellular/antibody rejection scores (patient level)
+spe$patient_cellular_grading |> unique()
+spe$patient_antibody_grading |> unique()
+```
+
+```{r}
+colData(spe) |> as.data.frame() |> distinct(patient_id, patient_rejection_type)
+```
+
+```{r}
+colData(spe) |> as.data.frame() |> distinct(patient_id, sample_id, patient_rejection_type, biopsy_rejection_type) |>
+  arrange(patient_id)
+```
+
+
+```{r}
+spe$biopsy_timing |> unique()
+```
+
+```{r}
+spe$cav_grade |> unique()
+```
+
+```{r}
+assayNames(spe)
+```
+
+
+```{r}
+hist(assay(spe[1, ], "counts"))
+```
+
+```{r}
+hist(assay(spe[1, ], "logcounts"))
+```
+
+```{r}
+hist(assay(spe[1, ], "scaledata"))
+```
+
+```{r}
+colSums(assay(spe, "counts")) |> hist()
+```
+
+```{r}
+spe$ct_second_pass |> unique()
+```
+
+```{r}
+# whether rejection responded to immunotherapy
+spe$resolution_broad |> unique()
+```
+
+```{r}
+spe$lineage |> unique()
+```
+
+## No weights spicyR
+
+```{r}
+# subsample to post-transplant, cellular/antibody rejection
+speSub = spe |> filter(biopsy_timing %in% "post" &
+                         patient_rejection_type %in% c("mixed_rejection", "cellular_rejection"))
+
+# sample 10 patients from each patient
+set.seed(51773)
+
+sampledPatients = colData(speSub) |>
+  as.data.frame() |>
+  distinct(patient_id, patient_rejection_type) |>
+  group_by(patient_rejection_type) |>
+  slice_sample(n = 10) |>
+  pull(patient_id)
+
+speSub = speSub[, speSub$patient_id %in% sampledPatients]
+```
+
+```{r}
+colData(speSub) |> as.data.frame() |> distinct(patient_id, patient_rejection_type) |> dplyr::count(patient_rejection_type)
+```
+
+```{r}
+colData(speSub) |> as.data.frame() |> count(Sample) |> arrange(n)
+```
+
+
+```{r}
+speSub |> filter(Sample == "Patient_6_3") |> 
+  ggplot(aes(x = adj_x_centroid, y = adj_y_centroid, colour = ct_second_pass)) +
+  geom_point() +
+  scale_y_reverse() +
+  coord_equal() +
+  theme_classic()
+```
+
+
+```{r}
+spicyNoWeights = spicy(speSub,
+                       condition = "patient_rejection_type",
+                       subject = "patient_id",
+                       imageID = "Sample",
+                       cellType = "ct_second_pass",
+                       spatialCoords = c("adj_x_centroid", "adj_y_centroid"),
+                       window = "convex",
+                       cores = 12)
+```
+
+```{r}
+coordCheck = colData(speSub) |>
+  as.data.frame() |>
+  group_by(Sample) |>
+  summarise(
+    nCells = n(),
+    xRange = diff(range(adj_x_centroid, na.rm = TRUE)),
+    yRange = diff(range(adj_y_centroid, na.rm = TRUE)),
+    hasNA = any(is.na(adj_x_centroid) | is.na(adj_y_centroid)))
+
+# look for problematic samples
+coordCheck |> filter(xRange == 0 | yRange == 0 | nCells < 10 | hasNA)
+```
+
+
+```{r}
+Lmetrics = getPairwise(speSub,
+                       imageID = "Sample",
+                       cellType = "ct_second_pass",
+                       spatialCoords = c("adj_x_centroid", "adj_y_centroid"),
+                       cores = 12)
+```
+
+```{r}
+ggplot(Lmetrics |> as.data.frame(),
+       )
+```
+
+```{r}
+dim(Lmetrics)
+```
+
