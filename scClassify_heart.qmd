@@ -24,13 +24,13 @@ devtools::load_all("../scClassifyWeights/")
 spe = SpatialDatasets::spe_Amancherla_2025()
 ```
 
-- what is the change in p-value for that one cell type pair?
-- for low accuracy cell types, what is happening to L function? 
-- accuracy vs L function 
-- check if lambda (expected intensity) has changed
-- check Kontextual code - statial package 
-- write out the K function - and identify where the weights are being included
-- 
+-   what is the change in p-value for that one cell type pair?
+-   for low accuracy cell types, what is happening to L function?
+-   accuracy vs L function
+-   check if lambda (expected intensity) has changed
+-   check Kontextual code - statial package
+-   write out the K function - and identify where the weights are being included
+-   
 
 ## EDA
 
@@ -45,7 +45,6 @@ spe$Sample |> unique()
 ```{r}
 spe$patient_biopsy |> unique()
 ```
-
 
 ```{r}
 # cellular/antibody rejection scores (patient level)
@@ -108,7 +107,6 @@ spe$lineage |> unique()
 colData(spe) |> as.data.frame() |> distinct(patient_id, patient_rejection_type) |> dplyr::count(patient_rejection_type)
 ```
 
-
 ## No weights spicyR
 
 ```{r}
@@ -169,7 +167,6 @@ model = train_scClassify(exprsMat_train = exprMat,
 
 saveRDS(model, "data/scClassifyModel.rds")
 ```
-
 
 ```{r eval = F}
 # extract the wkNN scores (both weights assigned to each cell and the correlation)
@@ -250,7 +247,6 @@ for (foldName in names(cellIdx)) {
 names(weightResults) = c(paste0("fold", 1:5))
 ```
 
-
 ```{r}
 # obtain vote margin
 # vote margin = group test cell neighbours by class, sum the weights within each class
@@ -327,7 +323,6 @@ finalConfidence = confidenceDf |>
     confidenceScore = voteMargin[which.max(level)])
 ```
 
-
 ```{r eval = F}
 # obtain predicted cell type labels
 # predict using the trained model
@@ -364,8 +359,6 @@ finalConfidence = finalConfidence |>
   dplyr::left_join(predLabelsDf, by = c("cellID"))
 ```
 
-
-
 ```{r}
 hist(finalConfidence$confidenceScore)
 ```
@@ -391,7 +384,6 @@ finalConfidence |>
     accuracy = mean(ct_second_pass == predLabels)) |>
   dplyr::arrange(accuracy)
 ```
-
 
 ## Weights spicyR
 
@@ -421,8 +413,6 @@ spicyWeights = spicyR::spicy(speSub,
 topPairs(spicyWeights, n = 700)
 ```
 
-
-
 ```{r}
 topPairs(spicyNoWeights)
 ```
@@ -430,7 +420,6 @@ topPairs(spicyNoWeights)
 ```{r}
 spicyWeights$p.value["Pericytes__Proliferating endothelial", ]
 ```
-
 
 ```{r fig.width = 12, fig.height = 8}
 signifPlot(spicyNoWeights)
@@ -445,7 +434,6 @@ weightsSig = spicyWeights$p.value |> filter(conditionresolved < 0.05) |> rowname
 noWeightsSig = spicyNoWeights$p.value |> filter(conditionresolved < 0.05) |> rownames()
 intersect(weightsSig, noWeightsSig)
 ```
-
 
 ```{r}
 # pairs only in weighted
@@ -464,5 +452,3 @@ spicyBoxPlot(spicyNoWeights, from = "Pericytes", to = "Proliferating endothelial
 ```{r}
 spicyBoxPlot(spicyWeights, from = "Pericytes", to = "Proliferating endothelial")
 ```
-
-

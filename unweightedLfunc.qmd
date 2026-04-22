@@ -1,0 +1,262 @@
+---
+title: "Applying cell weights"
+format: html
+editor: visual
+---
+
+## Libraries and set up
+
+```{r message = FALSE, warning = FALSE}
+.libPaths("/enna/nobackup/biostat/Rpackages/v4/")
+suppressPackageStartupMessages({
+  library(spicyR)
+  library(SpatialDatasets)
+  library(tidyverse)
+  library(tidySingleCellExperiment)
+  library(scClassify)
+  library(caret) 
+  library(spatstat.geom)
+  library(data.table)
+  library(Statial)
+  library(BiocParallel)
+  library(lme4)
+  library(lmerTest)
+})
+```
+
+```{r message = FALSE, warning = FALSE}
+spe = SpatialDatasets::spe_Amancherla_2025()
+```
+
+## EDA
+
+```{r}
+# spe$patient_id |> unique() # unique patient id
+# spe$Sample |> unique() # sample id 
+# spe$patient_biopsy |> unique() # sample (biopsy) id with info on whether biopsy is pre or post transplant
+
+# spe$patient_cellular_grading |> unique() # cellular rejection grade (patient level)
+# spe$patient_antibody_grading |> unique() # antibody rejection grade (patient level)
+```
+
+
+```{r}
+colData(spe) |> as.data.frame() |> distinct(patient_id, sample_id, patient_rejection_type, biopsy_rejection_type) |>
+  arrange(patient_id)
+```
+
+```{r}
+spe$biopsy_timing |> unique()
+```
+
+```{r}
+spe$cav_grade |> unique()
+```
+
+```{r}
+hist(assay(spe, "counts") |> as.vector(), breaks = 100, main = "Histogram of counts", xlab = "Counts")
+```
+
+
+```{r}
+hist(assay(spe, "logcounts") |> as.vector(), breaks = 100, main = "Histogram of logcounts", xlab = "Logcounts")
+```
+
+```{r}
+# likely went through Seurat's ScaleData pipeline = x-mean/sd, hard capped at 10
+hist(assay(spe, "scaledata") |> as.vector(), breaks = 100, main = "Histogram of scaled data", xlab = "Scaled data")
+```
+
+```{r}
+max(assay(spe, "scaledata"))  
+
+zeroFrac = mean(assay(spe, "counts") == 0)
+zeroFrac  # probably very high, e.g. >80%
+```
+
+```{r}
+spe$ct_second_pass = as.character(spe$ct_second_pass)
+spe$ct_second_pass |> unique()
+```
+
+```{r}
+# whether rejection responded to immunotherapy
+spe$resolution_broad |> unique()
+```
+
+```{r}
+# set r = 100 based on the size of these images (50 might be too small?)
+spe |> colData() |> as.data.frame() |>
+  dplyr::group_by(Sample) |>                                                                                                                           
+  dplyr::summarise(max_x = max(adj_x_centroid), max_y = max(adj_y_centroid)) 
+```
+
+
+## Subset data
+
+```{r}
+set.seed(51773)
+
+# filter to pre transplant
+# randomly pick 10 patients from each group 
+patient_idx = spe |>
+  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>
+  group_by(resolution_broad) |>
+  filter(patient_id %in% sample(unique(patient_id), min(10, n_distinct(patient_id)))) |>
+  ungroup() |> pull(patient_id) |> unique()
+
+speSub = spe[, colData(spe)$patient_id %in% patient_idx, ]
+```
+
+```{r}
+speSub$patient_id = droplevels(speSub$patient_id)
+speSub$Sample = droplevels(speSub$Sample)
+
+# rename columns to make it easy
+speSub = speSub |> rename(c("x" = "adj_x_centroid", "y" = "adj_y_centroid", "cellType" = "ct_second_pass",
+                            "imageID" = "Sample", "subject" = "patient_id", "cellID" = "X"))
+```
+
+## Generate closePairs 
+
+```{r}
+# extract cell data
+cells = colData(speSub) |> as.data.frame()
+
+# split by image/sample ID
+imageList = split(cells, cells$imageID)
+
+# set radius
+r = 100
+
+imageResults = lapply(imageList, function(image) {
+    image$cellID = factor(seq_len(nrow(image)))
+    ow = Statial::makeWindow(image, window = "convex")
+    
+    # generate closePairs object
+    imagePPP = spatstat.geom::ppp(x = image$x,
+      y = image$y,
+      window = ow,
+      marks = data.frame(cellType = image$cellType, cellID = image$cellID))                                                                                        
+    # returns a data frame where each row is a pair of cells within radius r
+    # columns = i, j, d (distance between them)
+    closePairs = spatstat.geom::closepairs(imagePPP, r, what = "ijd", distinct = FALSE) |> data.frame()
+    
+    # extract cell type vector
+    cellTypes = imagePPP$marks$cellType                                                                                                                           
+    # add cell ID
+    names(cellTypes) = imagePPP$marks$cellID
+    
+    # for each pair, look up the cell type of the "i" cell
+    closePairs$cellTypeI = cellTypes[closePairs$i]                                                                                                                 
+    # look up the cell type of the "j" cell
+    closePairs$cellTypeJ = cellTypes[closePairs$j]
+    
+    # convert i from plain integer index to factor (used later - i is an idex when performing edge correction)
+    closePairs$i = factor(closePairs$i, levels = imagePPP$marks$cellID)
+    closePairs = as.data.table(closePairs)
+    
+    # edge correction
+    # compute correction weight for each cell (between 0 and 1)
+    # represents the proportion of the search circle (radius r) that falls inside the tissue window
+    # cells well inside the tissue get 1, cells near the edge get lower weights 
+    edge = Statial:::.borderEdge(imagePPP, r)                                                                                                                  
+    
+    # invert the weights (increase contribution of cells near the edge)
+    edge = data.frame(i = factor(imagePPP$marks$cellID, levels = imagePPP$marks$cellID),
+                      edge = 1 / edge)
+    
+    # add correction weights to closePairs 
+    closePairs = dplyr::left_join(closePairs, edge[, c("i", "edge")], by = "i")
+    
+    list(closePairs = closePairs,
+      area = spatstat.geom::area(imagePPP))
+})
+
+```
+
+## Calculate L-function (unweighted)
+
+```{r}
+# get all cell type pairs
+cellTypes = unique(cells$cellType)
+pairs = expand.grid(child1 = cellTypes, child2 = cellTypes, stringsAsFactors = FALSE)
+
+Lfunc = bplapply(names(imageResults), function(imgID) {
+  closePairs = imageResults[[imgID]]$closePairs
+    area = imageResults[[imgID]]$area
+    
+    counts = closePairs[, .(n = sum(edge)), by = .(i, cellTypeI, cellTypeJ)]
+    counts = dcast(counts, i + cellTypeI ~ cellTypeJ, value.var = "n", fill = 0)
+    
+    # loop over every cell type pair in image - and calc L-function
+    pairResults = lapply(seq_len(nrow(pairs)), function(k) {
+      child1 = pairs$child1[k]
+      child2 = pairs$child2[k]
+      
+      # if a cell type is absent in the image return NA
+      if (!child1 %in% closePairs$cellTypeI | !child2 %in% closePairs$cellTypeJ) {
+        return(data.frame(imageID = imgID, child1 = child1, child2 = child2, L = NA))
+      }
+      
+      # calculate L function and return one-row df
+      L = Statial:::.Lfunction(closePairs, counts, child1, child2, r, area)
+      data.frame(imageID = imgID, child1 = child1, child2 = child2, L = L)
+    })                                                                                                                                                             
+    dplyr::bind_rows(pairResults)                                                                                                                                                                                   
+}, BPPARAM = MulticoreParam(workers = 20))
+
+Lfunc = dplyr::bind_rows(Lfunc)   
+```
+
+```{r}
+# combine L-function metrics with metadata
+cDat = colData(speSub) |> as.data.frame() |> dplyr::distinct(subject, imageID, slide, biopsy_cellular_grading, biopsy_antibody_grading,
+                                                             biopsy_rejection_type, days_from_transplant_to_biopsy, biopsy_timing, age_at_biopsy,
+                                                             cav_grade, death, patient_cellular_grading, patient_rejection_type, resolution_broad,
+                                                             treatment)
+
+Lfunc = merge(Lfunc, cDat, by = "imageID")
+Lfunc$cellType_pair = paste0(Lfunc$child1, "__", Lfunc$child2)
+
+head(Lfunc)
+```
+
+### Mixed-effects models
+
+```{r warning = F, message = F}
+# mixed-effects models for each cell type pair
+pairList = dplyr::distinct(Lfunc, child1, child2)
+
+noWeightsModels = lapply(seq_len(nrow(pairList)), function(k) {
+  child1 = pairList$child1[k]
+  child2 = pairList$child2[k]
+  
+  dat = Lfunc |> 
+    dplyr::filter(child1 == !!child1, child2 == !!child2) |>
+    dplyr::filter(!is.na(L), !is.na(resolution_broad))
+  
+  # need at least 2 groups and enough observations
+  if (length(unique(dat$resolution_broad)) < 2 | nrow(dat) < 5) {
+    return(data.frame(child1 = child1, child2 = child2, p.value = NA, estimate = NA))
+  }
+   
+  fit = tryCatch(lmer(L ~ resolution_broad + (1 | subject), data = dat),
+    error = function(e) NULL)
+  
+  if (is.null(fit)) {
+    return(data.frame(child1 = child1, child2 = child2, p.value = NA, estimate = NA))
+  }
+  
+  coef = summary(fit)$coefficients 
+  
+  # second row is the resolution_broad effect
+  data.frame(child1 = child1, child2 = child2, estimate = coef[2, "Estimate"], p.value = coef[2, "Pr(>|t|)"])                                                                                                                                                                                                               
+})
+
+noWeightsModels = dplyr::bind_rows(noWeightsModels)
+noWeightsModels = noWeightsModels |> rename(c(from = child1, to = child2))
+
+# multiple testing correction
+noWeightsModels$p.adj = p.adjust(noWeightsModels$p.value, method = "BH")
+```
