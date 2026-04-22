@@ -1,5 +1,5 @@
 ---
-title: "Applying cell weights"
+title: "Calculating L-function (unweighted)"
 format: html
 editor: visual
 ---
@@ -39,7 +39,6 @@ spe = SpatialDatasets::spe_Amancherla_2025()
 # spe$patient_antibody_grading |> unique() # antibody rejection grade (patient level)
 ```
 
-
 ```{r}
 colData(spe) |> as.data.frame() |> distinct(patient_id, sample_id, patient_rejection_type, biopsy_rejection_type) |>
   arrange(patient_id)
@@ -56,7 +55,6 @@ spe$cav_grade |> unique()
 ```{r}
 hist(assay(spe, "counts") |> as.vector(), breaks = 100, main = "Histogram of counts", xlab = "Counts")
 ```
-
 
 ```{r}
 hist(assay(spe, "logcounts") |> as.vector(), breaks = 100, main = "Histogram of logcounts", xlab = "Logcounts")
@@ -91,7 +89,6 @@ spe |> colData() |> as.data.frame() |>
   dplyr::summarise(max_x = max(adj_x_centroid), max_y = max(adj_y_centroid)) 
 ```
 
-
 ## Subset data
 
 ```{r}
@@ -117,7 +114,7 @@ speSub = speSub |> rename(c("x" = "adj_x_centroid", "y" = "adj_y_centroid", "cel
                             "imageID" = "Sample", "subject" = "patient_id", "cellID" = "X"))
 ```
 
-## Generate closePairs 
+## Generate closePairs
 
 ```{r}
 # extract cell data

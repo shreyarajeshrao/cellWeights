@@ -4,6 +4,24 @@ format: html
 editor: visual
 ---
 
+```{r message = FALSE, warning = FALSE}
+.libPaths("/enna/nobackup/biostat/Rpackages/v4/")
+suppressPackageStartupMessages({
+  library(spicyR)
+  library(SpatialDatasets)
+  library(tidyverse)
+  library(tidySingleCellExperiment)
+  library(scClassify)
+  library(caret) 
+  library(spatstat.geom)
+  library(data.table)
+  library(Statial)
+  library(BiocParallel)
+  library(lme4)
+  library(lmerTest)
+})
+```
+
 ## Generate weights from scClassify
 
 ```{r}
