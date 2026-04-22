@@ -1,0 +1,468 @@
+---
+title: "Conditional Probabilities (Heart)"
+format: html
+editor: visual
+---
+
+## Libraries and set up
+
+```{r message = FALSE, warning = FALSE}
+.libPaths("/enna/nobackup/biostat/Rpackages/v4/")
+suppressPackageStartupMessages({
+  library(spicyR)
+  library(SpatialDatasets)
+  library(tidyverse)
+  library(tidySingleCellExperiment)
+  library(scClassify)
+  library(caret)
+})
+
+devtools::load_all("../scClassifyWeights/")
+```
+
+```{r message = FALSE, warning = FALSE}
+spe = SpatialDatasets::spe_Amancherla_2025()
+```
+
+- what is the change in p-value for that one cell type pair?
+- for low accuracy cell types, what is happening to L function? 
+- accuracy vs L function 
+- check if lambda (expected intensity) has changed
+- check Kontextual code - statial package 
+- write out the K function - and identify where the weights are being included
+- 
+
+## EDA
+
+```{r}
+spe$patient_id |> unique()
+```
+
+```{r}
+spe$Sample |> unique()
+```
+
+```{r}
+spe$patient_biopsy |> unique()
+```
+
+
+```{r}
+# cellular/antibody rejection scores (patient level)
+spe$patient_cellular_grading |> unique()
+spe$patient_antibody_grading |> unique()
+```
+
+```{r}
+colData(spe) |> as.data.frame() |> distinct(patient_id, patient_rejection_type)
+```
+
+```{r}
+colData(spe) |> as.data.frame() |> distinct(patient_id, sample_id, patient_rejection_type, biopsy_rejection_type) |>
+  arrange(patient_id)
+```
+
+```{r}
+spe$biopsy_timing |> unique()
+```
+
+```{r}
+spe$cav_grade |> unique()
+```
+
+```{r}
+assayNames(spe)
+```
+
+```{r}
+hist(assay(spe[1, ], "counts"))
+```
+
+```{r}
+hist(assay(spe[1, ], "logcounts"))
+```
+
+```{r}
+hist(assay(spe[1, ], "scaledata"))
+```
+
+```{r}
+colSums(assay(spe, "counts")) |> hist()
+```
+
+```{r}
+spe$ct_second_pass = as.character(spe$ct_second_pass)
+spe$ct_second_pass |> unique()
+```
+
+```{r}
+# whether rejection responded to immunotherapy
+spe$resolution_broad |> unique()
+```
+
+```{r}
+spe$lineage |> unique()
+```
+
+```{r}
+colData(spe) |> as.data.frame() |> distinct(patient_id, patient_rejection_type) |> dplyr::count(patient_rejection_type)
+```
+
+
+## No weights spicyR
+
+```{r}
+set.seed(51773)
+
+patient_idx = spe |>
+  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>
+  group_by(resolution_broad) |>
+  filter(patient_id %in% sample(unique(patient_id), min(10, n_distinct(patient_id)))) |>
+  ungroup() |> pull(patient_id) |> unique()
+
+speSub = spe[, colData(spe)$patient_id %in% patient_idx, ]
+```
+
+```{r}
+colData(speSub) |> as.data.frame() |> distinct(patient_id, resolution_broad) |> dplyr::count(resolution_broad)
+```
+
+```{r}
+colData(speSub) |> as.data.frame() |> count(Sample) |> arrange(n)
+```
+
+```{r}
+speSub$patient_id = droplevels(speSub$patient_id)
+speSub$Sample = droplevels(speSub$Sample)
+```
+
+```{r}
+spicyNoWeights = spicy(speSub,
+                       condition = "resolution_broad",
+                       subject = "patient_id",
+                       imageID = "Sample",
+                       cellType = "ct_second_pass",
+                       spatialCoords = c("adj_x_centroid", "adj_y_centroid"),
+                       window = "convex",
+                       cores = 20)
+```
+
+```{r}
+topPairs(spicyNoWeights)
+```
+
+## Generate weights with scClassify
+
+```{r eval = F}
+# extract log-normalised expression matrix and existing cell type labels
+exprMat = assay(speSub, "logcounts") |> as ("dgCMatrix")
+labels  = speSub$ct_second_pass
+
+# train
+model = train_scClassify(exprsMat_train = exprMat,
+                         cellTypes_train = labels,
+                         tree = "HOPACH",
+                         selectFeatures = "limma",
+                         parallel = TRUE,
+                         verbose = TRUE,
+                         BPPARAM = BiocParallel::MulticoreParam(workers = 20))
+
+saveRDS(model, "data/scClassifyModel.rds")
+```
+
+
+```{r eval = F}
+# extract the wkNN scores (both weights assigned to each cell and the correlation)
+# we get 10 weights/correlation values for each cell (k = 10)
+
+devtools::load_all("../scClassifyWeights/")
+
+cellIdx = split(seq_len(ncol(speSub)), cut(seq_len(ncol(speSub)), breaks = 5))
+names(cellIdx) = paste0("fold", seq_along(cellIdx))
+
+levelModel = model$hierarchyKNNRes[["limma"]]$model
+levelHVG   = model$hierarchyKNNRes[["limma"]]$hvg
+
+chunkSize = 1000
+weightResults = list()
+
+for (foldName in names(cellIdx)) {
+  
+  cat("Processing", foldName, "\n")
+  exprMatTest = assay(speSub[, cellIdx[[foldName]]], "logcounts") |> as("dgCMatrix")
+  weightResults[[foldName]] = list()
+  
+  for (i in seq_along(levelModel)) {
+    if (is.null(levelModel[[i]])) next
+    
+    for (j in seq_along(levelModel[[i]])) {
+      
+      # skip noModel branches
+      if ("character" %in% is(levelModel[[i]][[j]])) next
+      
+      cat("  level", i, "branch", j, "\n")
+      
+      # find common genes
+      commonHVG  = intersect(rownames(exprMatTest), levelHVG[[i]][[j]])
+      exprMatSub = exprMatTest[commonHVG, , drop = FALSE]
+      exprMatSub = exprMatSub[Matrix::rowSums(exprMatSub) != 0, , drop = FALSE]
+      
+      if (nrow(exprMatSub) < 5) next
+      
+      commonGenes = intersect(rownames(exprMatSub), colnames(levelModel[[i]][[j]]$train))
+      exprMatSub  = exprMatSub[commonGenes, , drop = FALSE]
+      trainMat    = Matrix::t(levelModel[[i]][[j]]$train[, commonGenes])
+      
+      # chunk test cells to avoid memory issues
+      nCells = ncol(exprMatSub)
+      chunks = split(seq_len(nCells), ceiling(seq_len(nCells) / chunkSize))
+      
+      wknnResList = lapply(chunks, function(idx) {
+        
+        corMat = calculateSimilarity(
+          exprsMat_train = trainMat,
+          exprsMat_test  = exprMatSub[, idx, drop = FALSE],
+          similarity = "pearson")
+        
+        WKNNcor(corMat = corMat,
+          subLevelModel = levelModel[[i]][[j]],
+          cutoff_method = "dynamic",
+          k = 10,
+          prob_threshold = 0.7,
+          cor_threshold_static = 0.5,
+          cor_threshold_high = 0.7,
+          topLevel = FALSE,
+          verbose = FALSE)})
+      
+      # combine chunks
+      weightResults[[foldName]][[paste0("level", i, "_branch", j)]] = list(
+        predRes = do.call(c, lapply(wknnResList, `[[`, "predRes")),
+        topKNN = do.call(cbind, lapply(wknnResList, `[[`, "topKNN")),
+        topKNN_cor = do.call(cbind, lapply(wknnResList, `[[`, "topKNN_cor")),
+        topKNN_weight = do.call(cbind, lapply(wknnResList, `[[`, "topKNN_weight")),
+        level = i,
+        branch = j
+      )
+    }
+  }
+}
+
+names(weightResults) = c(paste0("fold", 1:5))
+```
+
+
+```{r}
+# obtain vote margin
+# vote margin = group test cell neighbours by class, sum the weights within each class
+# divide weight of each class by total weight to get vote margin
+# high confidence cell would have scores close to 1/0 (all neighbours of the same class)
+# low confidence cells would have scores that are all around the middle (0.4/0.5) (neighbours of mixed class)
+
+getVoteMargin = function(topKNN_weight, topKNN) {
+  # for each cell (column), compute the vote margin
+  vapply(seq_len(ncol(topKNN_weight)), function(i) {
+    
+    weights = topKNN_weight[, i]
+    labels  = topKNN[, i]
+    
+    # aggregate weights by cell type label
+    vote = stats::aggregate(weights, by = list(label = labels), sum)
+    
+    # remove unassigned votes (-1)
+    vote = vote[vote$label != "-1", ]
+    
+    if (nrow(vote) == 0) return(0)  # all neighbours were unassigned
+    
+    # winning class proportion of total weight
+    max(vote$x / sum(vote$x))
+    
+  }, numeric(1L))
+}
+
+# extract vote margins 
+confidenceDf = list()
+
+for (foldName in names(weightResults)) {
+  for (branchName in names(weightResults[[foldName]])) {
+    
+    res = weightResults[[foldName]][[branchName]]
+    
+    voteMargin = getVoteMargin(res$topKNN_weight, res$topKNN)
+    
+    confidenceDf[[paste0(foldName, "_", branchName)]] = data.frame(
+      cellID = names(res$predRes),
+      fold = foldName,
+      branch = branchName,
+      level  = res$level,
+      predRes = res$predRes,
+      voteMargin = voteMargin
+    )
+  }
+}
+
+confidenceDf = do.call(rbind, confidenceDf)
+rownames(confidenceDf) = NULL
+
+# fix the cellID column - strip the leading "1." or any "digits." prefix
+confidenceDf$cellID = gsub("^[0-9]+\\.", "", confidenceDf$cellID)
+
+str(confidenceDf)
+```
+
+```{r}
+head(confidenceDf)
+```
+
+```{r}
+# how many unique cells (this matches the original SPE object, phew)
+length(unique(confidenceDf$cellID))
+```
+
+```{r}
+# obtain final vote margins (this is the leaf score)
+finalConfidence = confidenceDf |>
+  dplyr::group_by(cellID) |>
+  dplyr::summarise(finalLabel = predRes[which.max(level)],
+    nLevels = dplyr::n(),
+    confidenceScore = voteMargin[which.max(level)])
+```
+
+
+```{r eval = F}
+# obtain predicted cell type labels
+# predict using the trained model
+nFolds = 5
+cellIdx = split(seq_len(ncol(speSub)), cut(seq_len(ncol(speSub)), breaks = nFolds))
+names(cellIdx) = paste0("fold", seq_along(cellIdx))
+
+predResults = lapply(cellIdx, function(idx) {
+  exprMatTest = assay(speSub[, idx], "logcounts") |> as("dgCMatrix")
+  
+  pred = predict_scClassify(exprsMat_test = exprMatTest,
+                            trainRes = model,
+                            algorithm = "WKNN",
+                            similarity = "pearson",
+                            cutoff_method = "dynamic",
+                            parallel = TRUE,
+                            BPPARAM = BiocParallel::MulticoreParam(workers = 5),
+                            verbose = TRUE)
+  return(pred)
+})
+names(predResults) = paste0("fold", seq_along(predResults))
+
+# extract predicted labels across all folds
+predLabelsDf = do.call(rbind, lapply(names(predResults), function(foldName) {
+  data.frame(
+    cellID = names(predResults[[foldName]]$pearson_WKNN_limma$predRes),
+    cellType = predResults[[foldName]]$pearson_WKNN_limma$predRes,
+    fold = foldName)})) 
+
+rownames(predLabelsDf) = NULL
+
+# join to finalConfidence
+finalConfidence = finalConfidence |>
+  dplyr::left_join(predLabelsDf, by = c("cellID"))
+```
+
+
+
+```{r}
+hist(finalConfidence$confidenceScore)
+```
+
+## Check scClassify performance
+
+```{r}
+# ORDER HAS CHANGED
+finalConfidence = merge(finalConfidence, by.x = "cellID",
+                        colData(speSub) |> as.data.frame(), by.y = "X")
+
+finalConfidence = finalConfidence |> dplyr::rename(predLabels = cellType)
+
+# overall accuracy
+mean(finalConfidence$ct_second_pass == finalConfidence$predLabels)
+```
+
+```{r}
+# breakdown by cell type... yikes
+finalConfidence |>
+  dplyr::group_by(ct_second_pass) |>
+  dplyr::summarise(n = dplyr::n(),
+    accuracy = mean(ct_second_pass == predLabels)) |>
+  dplyr::arrange(accuracy)
+```
+
+
+## Weights spicyR
+
+```{r}
+cData = colData(speSub) |> as.data.frame()
+cData = merge(cData,
+              finalConfidence |> dplyr::select(c("cellID", "confidenceScore", "predLabels")),
+              by.x = "X", by.y = "cellID")
+
+colData(speSub) = cData |> DataFrame()
+```
+
+```{r}
+devtools::load_all("../spicyR_shreya/")
+
+spicyWeights = spicyR::spicy(speSub,
+                       condition = "resolution_broad",
+                       subject = "patient_id",
+                       imageID = "Sample",
+                       cellType = "ct_second_pass",
+                       spatialCoords = c("adj_x_centroid", "adj_y_centroid"),
+                       window = "convex",
+                       cores = 20)
+```
+
+```{r}
+topPairs(spicyWeights, n = 700)
+```
+
+
+
+```{r}
+topPairs(spicyNoWeights)
+```
+
+```{r}
+spicyWeights$p.value["Pericytes__Proliferating endothelial", ]
+```
+
+
+```{r fig.width = 12, fig.height = 8}
+signifPlot(spicyNoWeights)
+```
+
+```{r fig.width = 12, fig.height = 8}
+signifPlot(spicyWeights)
+```
+
+```{r}
+weightsSig = spicyWeights$p.value |> filter(conditionresolved < 0.05) |> rownames()
+noWeightsSig = spicyNoWeights$p.value |> filter(conditionresolved < 0.05) |> rownames()
+intersect(weightsSig, noWeightsSig)
+```
+
+
+```{r}
+# pairs only in weighted
+setdiff(weightsSig, noWeightsSig)
+```
+
+```{r}
+# pairs only in no weights
+setdiff(noWeightsSig, weightsSig)
+```
+
+```{r}
+spicyBoxPlot(spicyNoWeights, from = "Pericytes", to = "Proliferating endothelial")
+```
+
+```{r}
+spicyBoxPlot(spicyWeights, from = "Pericytes", to = "Proliferating endothelial")
+```
+
+
