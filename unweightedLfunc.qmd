@@ -180,6 +180,7 @@ imageResults = lapply(imageList, function(image) {
 ```{r}
 # get all cell type pairs
 cellTypes = unique(cells$cellType)
+cellTypes = cellTypes[!is.na(cellTypes)]
 pairs = expand.grid(child1 = cellTypes, child2 = cellTypes, stringsAsFactors = FALSE)
 
 Lfunc = bplapply(names(imageResults), function(imgID) {
