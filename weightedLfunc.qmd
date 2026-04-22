@@ -22,9 +22,99 @@ suppressPackageStartupMessages({
 })
 ```
 
-
 ```{r}
 load(".RData")
 ```
 
+## Attach confidence weights to closePairs
 
+```{r}
+# closePairs are unchanged from the unweighted version (already in imageResults)
+# just attach confidence scores as a weight column
+# i is a factor 1..n corresponding to row order within each image
+cells = colData(speSub) |> as.data.frame()
+imageList = split(cells, cells$imageID)
+
+for (imgID in names(imageResults)) {
+  confScores = imageList[[imgID]]$confidenceScore
+  imageResults[[imgID]]$closePairs$weight = confScores[as.integer(imageResults[[imgID]]$closePairs$i)]
+}
+```
+
+## Calculate L-function (weighted)
+
+```{r}
+cellTypes = unique(cells$cellType)
+cellTypes = cellTypes[!is.na(cellTypes)]
+pairs = expand.grid(child1 = cellTypes, child2 = cellTypes, stringsAsFactors = FALSE)
+
+LfuncW = bplapply(names(imageResults), function(imgID) {
+  closePairs = imageResults[[imgID]]$closePairs
+  area       = imageResults[[imgID]]$area
+
+  # weight each neighbour contribution by the centre cell's confidence score
+  counts = closePairs[, .(n = sum(edge * weight)), by = .(i, cellTypeI, cellTypeJ)]
+  counts = dcast(counts, i + cellTypeI ~ cellTypeJ, value.var = "n", fill = 0)
+
+  pairResults = lapply(seq_len(nrow(pairs)), function(k) {
+    child1 = pairs$child1[k]
+    child2 = pairs$child2[k]
+
+    if (!child1 %in% closePairs$cellTypeI | !child2 %in% closePairs$cellTypeJ) {
+      return(data.frame(imageID = imgID, child1 = child1, child2 = child2, L = NA))
+    }
+
+    L = Statial:::.Lfunction(closePairs, counts, child1, child2, r, area)
+    data.frame(imageID = imgID, child1 = child1, child2 = child2, L = L)
+  })
+  dplyr::bind_rows(pairResults)
+}, BPPARAM = MulticoreParam(workers = 20))
+
+LfuncW = dplyr::bind_rows(LfuncW)
+```
+
+```{r}
+# combine with metadata
+cDat = colData(speSub) |> as.data.frame() |> dplyr::distinct(subject, imageID, slide, biopsy_cellular_grading, biopsy_antibody_grading,
+                                                             biopsy_rejection_type, days_from_transplant_to_biopsy, biopsy_timing, age_at_biopsy,
+                                                             cav_grade, death, patient_cellular_grading, patient_rejection_type, resolution_broad,
+                                                             treatment)
+
+LfuncW = merge(LfuncW, cDat, by = "imageID")
+LfuncW$cellType_pair = paste0(LfuncW$child1, "__", LfuncW$child2)
+
+head(LfuncW)
+```
+
+### Mixed-effects models
+
+```{r warning = F, message = F}
+pairList = dplyr::distinct(LfuncW, child1, child2)
+
+weightsModels = lapply(seq_len(nrow(pairList)), function(k) {
+  child1 = pairList$child1[k]
+  child2 = pairList$child2[k]
+
+  dat = LfuncW |>
+    dplyr::filter(child1 == !!child1, child2 == !!child2) |>
+    dplyr::filter(!is.na(L), !is.na(resolution_broad))
+
+  if (length(unique(dat$resolution_broad)) < 2 | nrow(dat) < 5) {
+    return(data.frame(child1 = child1, child2 = child2, p.value = NA, estimate = NA))
+  }
+
+  fit = tryCatch(lmer(L ~ resolution_broad + (1 | subject), data = dat),
+    error = function(e) NULL)
+
+  if (is.null(fit)) {
+    return(data.frame(child1 = child1, child2 = child2, p.value = NA, estimate = NA))
+  }
+
+  coef = summary(fit)$coefficients
+  data.frame(child1 = child1, child2 = child2, estimate = coef[2, "Estimate"], p.value = coef[2, "Pr(>|t|)"])
+})
+
+weightsModels = dplyr::bind_rows(weightsModels)
+weightsModels = weightsModels |> rename(c(from = child1, to = child2))
+weightsModels$p.adj = p.adjust(weightsModels$p.value, method = "BH")
+```

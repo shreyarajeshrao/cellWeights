@@ -22,11 +22,9 @@ suppressPackageStartupMessages({
 })
 ```
 
-
 ```{r}
 load(".RData")
 ```
-
 
 ```{r eval = F}
 # extract log-normalised expression matrix and existing cell type labels
@@ -233,7 +231,6 @@ cDat = merge(cDat, finalConfidence |> dplyr::select(cellID, confidenceScore, cel
 cDat = cDat |> dplyr::rename(c("cellType" = "cellType.x", "predLabels" = "cellType.y"))
 colData(speSub) = cDat |> DataFrame()
 ```
-
 
 ```{r}
 hist(finalConfidence$confidenceScore, main = "Histogram of confidence scores", xlab = "Confidence scores")
