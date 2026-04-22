@@ -30,20 +30,21 @@ load(".RData")
 
 ```{r}
 # closePairs are unchanged from the unweighted version
-# just attach confidence scores as a weight column
-# i is a factor 1..n corresponding to row order within each image
+# just attach confidence scores as a weight columne
 cells = colData(speSub) |> as.data.frame()
 imageList = split(cells, cells$imageID)
 
 # assign confidence score as a weight
 for (imgID in names(imageResults)) {
   confScores = imageList[[imgID]]$confidenceScore
+  # using the confidence score of the centre cell 
   imageResults[[imgID]]$closePairs$weight = confScores[as.integer(imageResults[[imgID]]$closePairs$i)]
 }
 ```
 
 ## Calculate L-function (weighted)
 
+$$\widehat{K}^w_{ij}(r) = \frac{|W|}{n_i n_j} \sum_{n_i} \sum_{n_j} \mathbf{1} \{d_{ij} \leq r\} , e_{ij}(r) \cdot w_i$$      
 
 ```{r}
 cellTypes = unique(cells$cellType)
@@ -55,7 +56,7 @@ LfuncW = bplapply(names(imageResults), function(imgID) {
   area = imageResults[[imgID]]$area
 
   # weight each neighbour contribution by the centre cell's confidence score
-  counts = closePairs[, .(n = sum(edge * weight)), by = .(i, cellTypeI, cellTypeJ)]
+  counts = closePairs[, .(n = sum(edge * weight, na.rm = TRUE)), by = .(i, cellTypeI, cellTypeJ)]
   counts = dcast(counts, i + cellTypeI ~ cellTypeJ, value.var = "n", fill = 0)
 
   pairResults = lapply(seq_len(nrow(pairs)), function(k) {
@@ -120,3 +121,19 @@ weightsModels = dplyr::bind_rows(weightsModels)
 weightsModels = weightsModels |> rename(c(from = child1, to = child2))
 weightsModels$p.adj = p.adjust(weightsModels$p.value, method = "BH")
 ```
+
+
+
+```{r}
+table(is.na(LfuncW$L))
+```
+
+```{r}
+LfuncW
+```
+
+
+
+
+
+
