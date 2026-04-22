@@ -29,12 +29,13 @@ load(".RData")
 ## Attach confidence weights to closePairs
 
 ```{r}
-# closePairs are unchanged from the unweighted version (already in imageResults)
+# closePairs are unchanged from the unweighted version
 # just attach confidence scores as a weight column
 # i is a factor 1..n corresponding to row order within each image
 cells = colData(speSub) |> as.data.frame()
 imageList = split(cells, cells$imageID)
 
+# assign confidence score as a weight
 for (imgID in names(imageResults)) {
   confScores = imageList[[imgID]]$confidenceScore
   imageResults[[imgID]]$closePairs$weight = confScores[as.integer(imageResults[[imgID]]$closePairs$i)]
@@ -43,6 +44,7 @@ for (imgID in names(imageResults)) {
 
 ## Calculate L-function (weighted)
 
+
 ```{r}
 cellTypes = unique(cells$cellType)
 cellTypes = cellTypes[!is.na(cellTypes)]
@@ -50,7 +52,7 @@ pairs = expand.grid(child1 = cellTypes, child2 = cellTypes, stringsAsFactors = F
 
 LfuncW = bplapply(names(imageResults), function(imgID) {
   closePairs = imageResults[[imgID]]$closePairs
-  area       = imageResults[[imgID]]$area
+  area = imageResults[[imgID]]$area
 
   # weight each neighbour contribution by the centre cell's confidence score
   counts = closePairs[, .(n = sum(edge * weight)), by = .(i, cellTypeI, cellTypeJ)]
