@@ -465,6 +465,8 @@ finalConfidence = finalConfidence |>
 finalConfidence
 ```
 
-
+```{r}
+hist(finalConfidence$confidenceScore, main = "Histogram of confidence scores", xlab = "Confidence scores")
+```
 
 
