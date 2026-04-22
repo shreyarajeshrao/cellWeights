@@ -22,7 +22,6 @@ suppressPackageStartupMessages({
 })
 ```
 
-## Generate weights from scClassify
 
 ```{r}
 load(".RData")
@@ -227,8 +226,14 @@ finalConfidence = finalConfidence |>
 ```
 
 ```{r}
-finalConfidence
+cDat = colData(speSub) |> as.data.frame()
+cDat = merge(cDat, finalConfidence |> dplyr::select(cellID, confidenceScore, cellType), by = "cellID")
+
+# rename columns
+cDat = cDat |> dplyr::rename(c("cellType" = "cellType.x", "predLabels" = "cellType.y"))
+colData(speSub) = cDat |> DataFrame()
 ```
+
 
 ```{r}
 hist(finalConfidence$confidenceScore, main = "Histogram of confidence scores", xlab = "Confidence scores")
