@@ -89,25 +89,24 @@ sigPairs = c(paste0(flippedCoef |> filter(p_unweighted < 0.05 | p_weighted < 0.0
 ```
 
 
-```{r}
-combinedLfunc = merge
 
-ggplot(Lfunc |> filter(cellType_pair %in% sigPairs), 
+```{r}
+p1 = ggplot(Lfunc |> filter(cellType_pair %in% sigPairs), 
        aes(x = resolution_broad, y = L)) +
   facet_wrap(~cellType_pair) +
   geom_boxplot() +
   theme_classic() +
   labs(x = "Resolution", y = "L-function")
-```
 
-
-```{r}
-ggplot(LfuncW |> filter(cellType_pair %in% sigPairs), 
+p2 = ggplot(LfuncW |> filter(cellType_pair %in% sigPairs), 
        aes(x = resolution_broad, y = L)) +
   facet_wrap(~cellType_pair) +
   geom_boxplot() +
   theme_classic() +
   labs(x = "Resolution", y = "L-function")
+
+gridExtra::grid.arrange(p1, p2)
 ```
+
 
 
