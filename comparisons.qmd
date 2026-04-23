@@ -42,11 +42,13 @@ speSub |> colData() |> as.data.frame() |>
 ```
 
 ```{r}
-weightsModels |> filter(grepl)
+weightsModels |> arrange(p.value)
 ```
 
 
-
+```{r}
+noWeightsModels |> arrange(p.value)
+```
 
 
 
