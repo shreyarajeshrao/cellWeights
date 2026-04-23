@@ -26,18 +26,49 @@ suppressPackageStartupMessages({
 load(".RData")
 ```
 
+## Generate closePairs (using predicted labels)
+
+```{r}
+cells = colData(speSub) |> as.data.frame()
+imageList = split(cells, cells$imageID)
+r = 100
+
+imageResults = lapply(imageList, function(image) {
+  image$cellID = factor(seq_len(nrow(image)))
+  ow = Statial::makeWindow(image, window = "convex")
+
+  imagePPP = spatstat.geom::ppp(x = image$x,
+    y = image$y,
+    window = ow,
+    marks = data.frame(cellType = image$predLabels, cellID = image$cellID))
+
+  closePairs = spatstat.geom::closepairs(imagePPP, r, what = "ijd", distinct = FALSE) |> data.frame()
+
+  cellTypes = imagePPP$marks$cellType
+  names(cellTypes) = imagePPP$marks$cellID
+
+  closePairs$cellTypeI = cellTypes[closePairs$i]
+  closePairs$cellTypeJ = cellTypes[closePairs$j]
+
+  closePairs$i = factor(closePairs$i, levels = imagePPP$marks$cellID)
+  closePairs = as.data.table(closePairs)
+
+  edge = Statial:::.borderEdge(imagePPP, r)
+  edge = data.frame(i = factor(imagePPP$marks$cellID, levels = imagePPP$marks$cellID),
+                    edge = 1 / edge)
+
+  closePairs = dplyr::left_join(closePairs, edge[, c("i", "edge")], by = "i")
+
+  list(closePairs = closePairs,
+    area = spatstat.geom::area(imagePPP))
+})
+```
+
 ## Attach confidence weights to closePairs
 
 ```{r}
-# closePairs are unchanged from the unweighted version
-# just attach confidence scores as a weight columne
-cells = colData(speSub) |> as.data.frame()
-imageList = split(cells, cells$imageID)
-
-# assign confidence score as a weight
 for (imgID in names(imageResults)) {
   confScores = imageList[[imgID]]$confidenceScore
-  # using the confidence score of the centre cell 
   imageResults[[imgID]]$closePairs$weight = confScores[as.integer(imageResults[[imgID]]$closePairs$i)]
 }
 ```
@@ -47,7 +78,7 @@ for (imgID in names(imageResults)) {
 $$\widehat{K}^w_{ij}(r) = \frac{|W|}{n_i n_j} \sum_{n_i} \sum_{n_j} \mathbf{1} \{d_{ij} \leq r\} , e_{ij}(r) \cdot w_i$$      
 
 ```{r}
-cellTypes = unique(cells$cellType)
+cellTypes = unique(cells$predLabels)
 cellTypes = cellTypes[!is.na(cellTypes)]
 pairs = expand.grid(child1 = cellTypes, child2 = cellTypes, stringsAsFactors = FALSE)
 
