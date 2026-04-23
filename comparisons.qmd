@@ -1,0 +1,54 @@
+---
+title: "Comparing weighted vs unweighted"
+format: html
+editor: visual
+---
+
+```{r message = FALSE, warning = FALSE}
+.libPaths("/enna/nobackup/biostat/Rpackages/v4/")
+suppressPackageStartupMessages({
+  library(lme4)
+  library(lmerTest)
+  library(spicyR)
+  library(SpatialDatasets)
+  library(tidyverse)
+  library(tidySingleCellExperiment)
+  library(scClassify)
+  library(caret) 
+  library(spatstat.geom)
+  library(data.table)
+  library(Statial)
+  library(BiocParallel)
+})
+```
+
+```{r}
+load(".RData")
+```
+
+
+```{r}
+# overall accuracy
+mean(speSub$cellType == speSub$predLabels)
+```
+
+```{r}
+# breakdown by cell type... yikes
+speSub |> colData() |> as.data.frame() |>
+  dplyr::group_by(cellType) |>
+  dplyr::summarise(n = dplyr::n(),
+    accuracy = mean(cellType == predLabels)) |>
+  dplyr::arrange(accuracy)
+```
+
+```{r}
+weightsModels |> filter(grepl)
+```
+
+
+
+
+
+
+
+

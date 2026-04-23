@@ -7,6 +7,8 @@ editor: visual
 ```{r message = FALSE, warning = FALSE}
 .libPaths("/enna/nobackup/biostat/Rpackages/v4/")
 suppressPackageStartupMessages({
+  library(lme4)
+  library(lmerTest)
   library(spicyR)
   library(SpatialDatasets)
   library(tidyverse)
@@ -17,8 +19,6 @@ suppressPackageStartupMessages({
   library(data.table)
   library(Statial)
   library(BiocParallel)
-  library(lme4)
-  library(lmerTest)
 })
 ```
 
@@ -123,14 +123,6 @@ weightsModels$p.adj = p.adjust(weightsModels$p.value, method = "BH")
 ```
 
 
-
-```{r}
-table(is.na(LfuncW$L))
-```
-
-```{r}
-LfuncW
-```
 
 
 

@@ -9,6 +9,8 @@ editor: visual
 ```{r message = FALSE, warning = FALSE}
 .libPaths("/enna/nobackup/biostat/Rpackages/v4/")
 suppressPackageStartupMessages({
+  library(lme4)
+  library(lmerTest)
   library(spicyR)
   library(SpatialDatasets)
   library(tidyverse)
@@ -19,8 +21,6 @@ suppressPackageStartupMessages({
   library(data.table)
   library(Statial)
   library(BiocParallel)
-  library(lme4)
-  library(lmerTest)
 })
 ```
 
@@ -268,3 +268,6 @@ noWeightsModels = noWeightsModels |> rename(c(from = child1, to = child2))
 # multiple testing correction
 noWeightsModels$p.adj = p.adjust(noWeightsModels$p.value, method = "BH")
 ```
+
+
+
