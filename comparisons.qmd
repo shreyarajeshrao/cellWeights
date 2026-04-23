@@ -55,9 +55,30 @@ comparison = dplyr::full_join(noWeightsModels |> dplyr::rename(estimate_unweight
   dplyr::select(from, to, estimate_unweighted, estimate_weighted, p.adj_unweighted, p.adj_weighted) |>
   dplyr::arrange(from, to)    
 
-comparison |> filter(from %in% lowAccuracy)
+p = comparison |> 
+  dplyr::filter(!is.na(estimate_unweighted), !is.na(estimate_weighted)) |>
+  dplyr::mutate(flipped = sign(estimate_unweighted) != sign(estimate_weighted),
+                label = paste0(from, " → ", to, "<br>Unweighted: ", round(estimate_unweighted, 3), "<br>Weighted: ",   round(estimate_weighted, 3))) |>
+  ggplot(aes(x = estimate_unweighted, y = estimate_weighted, colour = flipped, text = label)) + 
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotted", alpha = 0.5) +
+  scale_colour_manual(values = c("FALSE" = "grey60", "TRUE" = "red")) + 
+  labs(x = "Coefficient (unweighted)", y = "Coefficient (weighted)", colour = "Direction flipped") +
+  theme_classic()
+
+plotly::ggplotly(p)
 ```
 
+```{r}
+flippedCoef = comparison |> 
+  dplyr::filter(!is.na(estimate_unweighted), !is.na(estimate_weighted)) |>
+  dplyr::mutate(flipped = sign(estimate_unweighted) != sign(estimate_weighted)) |> 
+  filter(flipped == TRUE)
+
+flippedCoef
+```
 
 
 
