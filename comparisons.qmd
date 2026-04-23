@@ -34,21 +34,32 @@ mean(speSub$cellType == speSub$predLabels)
 
 ```{r}
 # breakdown by cell type... yikes
-speSub |> colData() |> as.data.frame() |>
+accuracyDf = speSub |> colData() |> as.data.frame() |>
   dplyr::group_by(cellType) |>
   dplyr::summarise(n = dplyr::n(),
     accuracy = mean(cellType == predLabels)) |>
   dplyr::arrange(accuracy)
+
+accuracyDf
 ```
 
 ```{r}
-weightsModels |> arrange(p.value)
+lowAccuracy = accuracyDf |> dplyr::filter(accuracy < 0.6) |> dplyr::pull(cellType)  
 ```
-
 
 ```{r}
-noWeightsModels |> arrange(p.value)
+comparison = dplyr::full_join(noWeightsModels |> dplyr::rename(estimate_unweighted = estimate, p.adj_unweighted = p.adj),
+                              weightsModels |> dplyr::rename(estimate_weighted   = estimate, p.adj_weighted = p.adj),
+                              by = c("from", "to")) |>
+  dplyr::filter(from %in% lowAccuracy | to %in% lowAccuracy) |>
+  dplyr::select(from, to, estimate_unweighted, estimate_weighted, p.adj_unweighted, p.adj_weighted) |>
+  dplyr::arrange(from, to)    
+
+comparison |> filter(from %in% lowAccuracy)
 ```
+
+
+
 
 
 
