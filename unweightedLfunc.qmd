@@ -30,7 +30,6 @@ suppressPackageStartupMessages({
 load(".RData")
 ```
 
-
 ## Generate closePairs
 
 ```{r}
@@ -90,7 +89,6 @@ imageResults = lapply(imageList, function(image) {
 ```
 
 ## Calculate L-function (unweighted)
-
 
 ```{r}
 # get all cell type pairs
@@ -177,6 +175,3 @@ noWeightsModels = noWeightsModels |> rename(c(from = child1, to = child2))
 # multiple testing correction
 noWeightsModels$p.adj = p.adjust(noWeightsModels$p.value, method = "BH")
 ```
-
-
-

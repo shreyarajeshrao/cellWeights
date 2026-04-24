@@ -118,7 +118,7 @@ LfuncW$cellType_pair = paste0(LfuncW$child1, "__", LfuncW$child2)
 head(LfuncW)
 ```
 
-### Mixed-effects models
+### Linear models
 
 ```{r warning = F, message = F}
 pairList = dplyr::distinct(LfuncW, child1, child2)
@@ -135,7 +135,7 @@ weightsModels = lapply(seq_len(nrow(pairList)), function(k) {
     return(data.frame(child1 = child1, child2 = child2, p.value = NA, estimate = NA))
   }
 
-  fit = tryCatch(lmer(L ~ resolution_broad + (1 | subject), data = dat),
+  fit = tryCatch(lm(L ~ resolution_broad, data = dat),
     error = function(e) NULL)
 
   if (is.null(fit)) {
