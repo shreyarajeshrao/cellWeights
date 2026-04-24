@@ -83,18 +83,19 @@ spe |> colData() |> as.data.frame() |>
 ```{r}
 set.seed(51773)
 
-# filter to post transplant
+# filter to post transplant, cellular rejection 
 # pick 1 random image per patient, then sample 10 of those (one image per person)
-image_idx = colData(spe) |> as.data.frame() |>
-  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>
-  distinct(patient_id, Sample, resolution_broad) |>
+imageIdx = colData(spe) |> as.data.frame() |>
+  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>                                       
+  distinct(patient_id, Sample, resolution_broad) |>                                                                         
   group_by(resolution_broad, patient_id) |>
-  slice_sample(n = 1) |>
-  group_by(resolution_broad) |>
-  slice_sample(n = min(10, n())) |>
-  pull(Sample)
+  slice_sample(n = 1) |>                                                                                                    
+  group_by(resolution_broad) |>                                                                                             
+  slice_sample(prop = 1) |>
+  slice_head(n = 10) |>                                                                                                     
+  pull(Sample)     
 
-speSub = spe[, colData(spe)$Sample %in% image_idx, ]
+speSub = spe[, colData(spe)$Sample %in% imageIdx, ]
 ```
 
 ```{r eval = F}
@@ -110,6 +111,12 @@ model = train_scClassify(exprsMat_train = exprMat,
                          parallel = TRUE,
                          verbose = TRUE,
                          BPPARAM = BiocParallel::MulticoreParam(workers = 20))
+```
+
+```{r}
+# rename columns to make it easy
+speSub = speSub |> rename(c("x" = "adj_x_centroid", "y" = "adj_y_centroid", "cellType" = "ct_second_pass",
+                            "imageID" = "Sample", "subject" = "patient_id", "cellID" = "X"))
 ```
 
 ```{r eval = F}
@@ -274,7 +281,7 @@ predResults = lapply(cellIdx, function(idx) {
                             similarity = "pearson",
                             cutoff_method = "dynamic",
                             parallel = TRUE,
-                            BPPARAM = BiocParallel::MulticoreParam(workers = 5),
+                            BPPARAM = BiocParallel::MulticoreParam(workers = 20),
                             verbose = TRUE)
   return(pred)
 })

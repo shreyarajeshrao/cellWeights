@@ -7,10 +7,10 @@ editor: visual
 ## Libraries and set up
 
 ```{r message = FALSE, warning = FALSE}
+library(rlang, lib.loc = "/enna/users/stfour/shreyar/Desktop/lib/")
+
 .libPaths("/enna/nobackup/biostat/Rpackages/v4/")
 suppressPackageStartupMessages({
-  library(lme4)
-  library(lmerTest)
   library(spicyR)
   library(SpatialDatasets)
   library(tidyverse)
@@ -21,98 +21,15 @@ suppressPackageStartupMessages({
   library(data.table)
   library(Statial)
   library(BiocParallel)
+  library(lme4)
+  library(lmerTest)
 })
 ```
 
-```{r message = FALSE, warning = FALSE}
-spe = SpatialDatasets::spe_Amancherla_2025()
-```
-
-## EDA
-
 ```{r}
-# spe$patient_id |> unique() # unique patient id
-# spe$Sample |> unique() # sample id 
-# spe$patient_biopsy |> unique() # sample (biopsy) id with info on whether biopsy is pre or post transplant
-
-# spe$patient_cellular_grading |> unique() # cellular rejection grade (patient level)
-# spe$patient_antibody_grading |> unique() # antibody rejection grade (patient level)
+load(".RData")
 ```
 
-```{r}
-colData(spe) |> as.data.frame() |> distinct(patient_id, sample_id, patient_rejection_type, biopsy_rejection_type) |>
-  arrange(patient_id)
-```
-
-```{r}
-spe$biopsy_timing |> unique()
-```
-
-```{r}
-spe$cav_grade |> unique()
-```
-
-```{r}
-hist(assay(spe, "counts") |> as.vector(), breaks = 100, main = "Histogram of counts", xlab = "Counts")
-```
-
-```{r}
-hist(assay(spe, "logcounts") |> as.vector(), breaks = 100, main = "Histogram of logcounts", xlab = "Logcounts")
-```
-
-```{r}
-# likely went through Seurat's ScaleData pipeline = x-mean/sd, hard capped at 10
-hist(assay(spe, "scaledata") |> as.vector(), breaks = 100, main = "Histogram of scaled data", xlab = "Scaled data")
-```
-
-```{r}
-max(assay(spe, "scaledata"))  
-
-zeroFrac = mean(assay(spe, "counts") == 0)
-zeroFrac  # probably very high, e.g. >80%
-```
-
-```{r}
-spe$ct_second_pass = as.character(spe$ct_second_pass)
-spe$ct_second_pass |> unique()
-```
-
-```{r}
-# whether rejection responded to immunotherapy
-spe$resolution_broad |> unique()
-```
-
-```{r}
-# set r = 100 based on the size of these images (50 might be too small?)
-spe |> colData() |> as.data.frame() |>
-  dplyr::group_by(Sample) |>                                                                                                                           
-  dplyr::summarise(max_x = max(adj_x_centroid), max_y = max(adj_y_centroid)) 
-```
-
-## Subset data
-
-```{r}
-set.seed(51773)
-
-# filter to pre transplant
-# randomly pick 10 patients from each group 
-patient_idx = spe |>
-  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>
-  group_by(resolution_broad) |>
-  filter(patient_id %in% sample(unique(patient_id), min(10, n_distinct(patient_id)))) |>
-  ungroup() |> pull(patient_id) |> unique()
-
-speSub = spe[, colData(spe)$patient_id %in% patient_idx, ]
-```
-
-```{r}
-speSub$patient_id = droplevels(speSub$patient_id)
-speSub$Sample = droplevels(speSub$Sample)
-
-# rename columns to make it easy
-speSub = speSub |> rename(c("x" = "adj_x_centroid", "y" = "adj_y_centroid", "cellType" = "ct_second_pass",
-                            "imageID" = "Sample", "subject" = "patient_id", "cellID" = "X"))
-```
 
 ## Generate closePairs
 
@@ -134,7 +51,7 @@ imageResults = lapply(imageList, function(image) {
     imagePPP = spatstat.geom::ppp(x = image$x,
       y = image$y,
       window = ow,
-      marks = data.frame(cellType = image$cellType, cellID = image$cellID))                                                                                        
+      marks = data.frame(cellType = image$predLabels, cellID = image$cellID))                                                                                        
     # returns a data frame where each row is a pair of cells within radius r
     # columns = i, j, d (distance between them)
     closePairs = spatstat.geom::closepairs(imagePPP, r, what = "ijd", distinct = FALSE) |> data.frame()
@@ -174,15 +91,6 @@ imageResults = lapply(imageList, function(image) {
 
 ## Calculate L-function (unweighted)
 
- $$\widehat{K}_{ij}(r) = \frac{|W|}{n_i n_j} \sum_{n_i} \sum_{n_j} \mathbf{1} \{d_{ij} \leq r\} , e_{ij}(r)$$
-
-where:
-
-- $\widehat K_{ij}(r)$ is the degree of co-localisation of cell type $i$ with cell type $j$
-- $n_i$ and $n_j$ are the number of cells of type $i$ and $j$
-- $|W|$ is the image area
-- $d_{ij}$ is the distance between two cells
-- $e_{ij}(r)$ is the edge correcting factor
 
 ```{r}
 # get all cell type pairs

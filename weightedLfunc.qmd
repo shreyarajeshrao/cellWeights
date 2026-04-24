@@ -26,7 +26,7 @@ suppressPackageStartupMessages({
 load(".RData")
 ```
 
-## Generate closePairs (using predicted labels)
+## Generate closePairs 
 
 ```{r}
 cells = colData(speSub) |> as.data.frame()
@@ -74,8 +74,6 @@ for (imgID in names(imageResults)) {
 ```
 
 ## Calculate L-function (weighted)
-
-$$\widehat{K}^w_{ij}(r) = \frac{|W|}{n_i n_j} \sum_{n_i} \sum_{n_j} \mathbf{1} \{d_{ij} \leq r\} , e_{ij}(r) \cdot w_i$$      
 
 ```{r}
 cellTypes = unique(cells$predLabels)
