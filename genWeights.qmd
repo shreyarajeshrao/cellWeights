@@ -84,14 +84,17 @@ spe |> colData() |> as.data.frame() |>
 set.seed(51773)
 
 # filter to post transplant
-# randomly pick 10 patients from each group 
-patient_idx = spe |>
+# pick 1 random image per patient, then sample 10 of those (one image per person)
+image_idx = colData(spe) |> as.data.frame() |>
   filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>
+  distinct(patient_id, Sample, resolution_broad) |>
+  group_by(resolution_broad, patient_id) |>
+  slice_sample(n = 1) |>
   group_by(resolution_broad) |>
-  filter(patient_id %in% sample(unique(patient_id), min(10, n_distinct(patient_id)))) |>
-  ungroup() |> pull(patient_id) |> unique()
+  slice_sample(n = min(10, n())) |>
+  pull(Sample)
 
-speSub = spe[, colData(spe)$patient_id %in% patient_idx, ]
+speSub = spe[, colData(spe)$Sample %in% image_idx, ]
 ```
 
 ```{r eval = F}
