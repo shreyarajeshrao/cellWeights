@@ -203,6 +203,7 @@ Lfunc = bplapply(names(imageResults), function(imgID) {
       child2 = pairs$child2[k]
       
       # if a cell type is absent in the image return NA
+      # ------------  CHECK FOR NA --------------
       if (!child1 %in% closePairs$cellTypeI | !child2 %in% closePairs$cellTypeJ) {
         return(data.frame(imageID = imgID, child1 = child1, child2 = child2, L = NA))
       }

@@ -11,8 +11,8 @@ suppressPackageStartupMessages({
   library(lmerTest)
   library(spicyR)
   library(SpatialDatasets)
-  library(tidyverse)
   library(tidySingleCellExperiment)
+  library(tidyverse)
   library(scClassify)
   library(caret) 
   library(spatstat.geom)
@@ -92,21 +92,62 @@ sigPairs = c(paste0(flippedCoef |> filter(p_unweighted < 0.05 | p_weighted < 0.0
 
 ```{r}
 p1 = ggplot(Lfunc |> filter(cellType_pair %in% sigPairs), 
-       aes(x = resolution_broad, y = L)) +
+       aes(x = resolution_broad, y = L, 
+           text = paste0(imageID, "\n", round(L, 2)))) +
   facet_wrap(~cellType_pair) +
   geom_boxplot() +
+  geom_jitter() +
   theme_classic() +
   labs(x = "Resolution", y = "L-function")
 
 p2 = ggplot(LfuncW |> filter(cellType_pair %in% sigPairs), 
-       aes(x = resolution_broad, y = L)) +
+       aes(x = resolution_broad, y = L, 
+           text = paste0(imageID, "\n", round(L, 2)))) +
   facet_wrap(~cellType_pair) +
   geom_boxplot() +
+  geom_jitter() +
   theme_classic() +
   labs(x = "Resolution", y = "L-function")
 
-gridExtra::grid.arrange(p1, p2)
+plotly::ggplotly(p1, tooltip = "text")
 ```
 
+
+```{r}
+plotly::ggplotly(p2, tooltip = "text")
+```
+
+## v2
+
+```{r}
+comparisonv2 = dplyr::full_join(noWeightsModels |> dplyr::rename(estimate_unweighted = estimate, p_unweighted = p.value,
+                                                               p.adj_unweighted = p.adj),
+                              weightsModelsv2 |> dplyr::rename(estimate_weighted = estimate, p_weighted = p.value,
+                                                             p.adj_weighted = p.adj),
+                              by = c("from", "to")) |>
+  dplyr::filter(from %in% lowAccuracy | to %in% lowAccuracy) |>
+  dplyr::select(from, to, estimate_unweighted, estimate_weighted, p_unweighted, p.adj_unweighted, p_weighted, p.adj_weighted) |>
+  dplyr::arrange(from, to)    
+
+p = comparison |> 
+  dplyr::filter(!is.na(estimate_unweighted), !is.na(estimate_weighted)) |>
+  dplyr::mutate(flipped = sign(estimate_unweighted) != sign(estimate_weighted),
+                label = paste0(from, " → ", to, "<br>Unweighted: ", round(estimate_unweighted, 3), "<br>Weighted: ",   round(estimate_weighted, 3))) |>
+  ggplot(aes(x = estimate_unweighted, y = estimate_weighted, colour = flipped, text = label)) + 
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotted", alpha = 0.5) +
+  scale_colour_manual(values = c("FALSE" = "grey60", "TRUE" = "red")) + 
+  labs(x = "Coefficient (unweighted)", y = "Coefficient (weighted)", colour = "Direction flipped") +
+  theme_classic()
+
+plotly::ggplotly(p, tooltip = "text")
+```
+
+
+```{r}
+speSub[confidenceScore == 0, ]
+```
 
 

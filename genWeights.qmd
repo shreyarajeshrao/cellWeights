@@ -1,10 +1,12 @@
 ---
-title: "Generating weights"
+title: "Generating weights using scClassify"
 format: html
 editor: visual
 ---
 
-```{r message = FALSE, warning = FALSE}
+```{r}
+library(rlang, lib.loc = "/enna/users/stfour/shreyar/Desktop/lib/")
+
 .libPaths("/enna/nobackup/biostat/Rpackages/v4/")
 suppressPackageStartupMessages({
   library(spicyR)
@@ -22,8 +24,74 @@ suppressPackageStartupMessages({
 })
 ```
 
+
+```{r message = FALSE, warning = FALSE}
+spe = SpatialDatasets::spe_Amancherla_2025()
+```
+
 ```{r}
-load(".RData")
+colData(spe) |> as.data.frame() |> distinct(patient_id, sample_id, patient_rejection_type, biopsy_rejection_type) |>
+  arrange(patient_id)
+```
+
+```{r}
+spe$biopsy_timing |> unique()
+```
+
+```{r}
+spe$cav_grade |> unique()
+```
+
+```{r}
+hist(assay(spe, "counts") |> as.vector(), breaks = 100, main = "Histogram of counts", xlab = "Counts")
+```
+```{r}
+hist(assay(spe, "logcounts") |> as.vector(), breaks = 100, main = "Histogram of logcounts", xlab = "Logcounts")
+```
+
+```{r}
+# likely went through Seurat's ScaleData pipeline = x-mean/sd, hard capped at 10
+hist(assay(spe, "scaledata") |> as.vector(), breaks = 100, main = "Histogram of scaled data", xlab = "Scaled data")
+```
+
+```{r}
+max(assay(spe, "scaledata"))  
+
+zeroFrac = mean(assay(spe, "counts") == 0)
+zeroFrac  # probably very high, e.g. >80%
+```
+
+```{r}
+spe$ct_second_pass = as.character(spe$ct_second_pass)
+spe$ct_second_pass |> unique()
+```
+
+```{r}
+# whether rejection responded to immunotherapy
+spe$resolution_broad |> unique()
+```
+
+```{r}
+# set r = 100 based on the size of these images (50 might be too small?)
+spe |> colData() |> as.data.frame() |>
+  dplyr::group_by(Sample) |>
+  dplyr::summarise(max_x = max(adj_x_centroid), max_y = max(adj_y_centroid)) 
+```
+
+## Subset data
+
+```{r}
+set.seed(51773)
+
+# filter to post transplant
+# randomly pick 10 patients from each group 
+patient_idx = spe |>
+  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>
+  group_by(resolution_broad) |>
+  filter(patient_id %in% sample(unique(patient_id), min(10, n_distinct(patient_id)))) |>
+  ungroup() |> pull(patient_id) |> unique()
+
+speSub = spe[, colData(spe)$patient_id %in% patient_idx, ]
 ```
 
 ```{r eval = F}
