@@ -83,9 +83,12 @@ spe |> colData() |> as.data.frame() |>
 ## Subset data
 
 ```{r}
-spe |> colData() |> as.data.frame() |> dplyr::distinct(patient_id, patient_rejection_type, biopsy_timing, resolution_broad) |> 
-  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |> pull(resolution_broad) |> table()
+spe |> colData() |> as.data.frame() |> 
+  dplyr::distinct(patient_rejection_type, patient_id, biopsy_timing, resolution_broad) |> 
+  filter(biopsy_timing == "post") |> 
+  pull(resolution_broad) |> table()
 ```
+
 
 
 ```{r}
@@ -94,7 +97,7 @@ set.seed(51773)
 # filter to post transplant, cellular rejection                                                                          
 # randomly pick 1 image per patient
 imageIdx = colData(spe) |> as.data.frame() |>
-  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>
+  filter(biopsy_timing == "post" & biopsy_rejection_type == "cellular_rejection") |>
   distinct(patient_id, Sample) |>
   group_by(patient_id) |>
   slice_sample(n = 1) |>
@@ -102,6 +105,15 @@ imageIdx = colData(spe) |> as.data.frame() |>
 
 speSub = spe[, spe$Sample %in% imageIdx]
 ```
+
+```{r}
+speSub$Sample |> unique()
+```
+
+```{r}
+speSub |> colData() |> as.data.frame() |> dplyr::distinct(patient_id) |> table()
+``` 
+
 
 ```{r}
 # rename columns to make it easy
@@ -346,6 +358,9 @@ for (i in unique(speSub$imageID)) {
 ```
 ::: 
 
+```{r}
+speSub$biopsy_rejection_type |> unique()
+```
 
 
 
