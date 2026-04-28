@@ -5,32 +5,32 @@ editor: visual
 ---
 
 ```{r}
-library(rlang, lib.loc = "/enna/users/stfour/shreyar/Desktop/lib/")
-
-.libPaths("/enna/nobackup/biostat/Rpackages/v4/")
-suppressPackageStartupMessages({
-  library(spicyR)
-  library(SpatialDatasets)
+.libPaths(c("/enna/users/stfour/shreyar/Desktop/lib/", "/enna/nobackup/biostat/Rpackages/v4/"))
+suppressPackageStartupMessages({                                                                                            
+  library(spicyR)    
+  library(SpatialDatasets)                                                                                                  
   library(tidyverse)
-  library(tidySingleCellExperiment)
+  library(tidySingleCellExperiment)                                                                                          
   library(scClassify)
-  library(caret) 
+  library(caret)                                                                                                            
   library(spatstat.geom)
   library(data.table)
   library(Statial)
   library(BiocParallel)
-  library(lme4)
+  library(lme4)                                                                                                             
   library(lmerTest)
-})
+  library(visdat)
+}) 
 ```
 
+## EDA
 
 ```{r message = FALSE, warning = FALSE}
 spe = SpatialDatasets::spe_Amancherla_2025()
 ```
 
 ```{r}
-colData(spe) |> as.data.frame() |> distinct(patient_id, sample_id, patient_rejection_type, biopsy_rejection_type) |>
+colData(spe) |> as.data.frame() |> distinct(patient_id, Sample, patient_rejection_type, biopsy_rejection_type) |>
   arrange(patient_id)
 ```
 
@@ -45,6 +45,8 @@ spe$cav_grade |> unique()
 ```{r}
 hist(assay(spe, "counts") |> as.vector(), breaks = 100, main = "Histogram of counts", xlab = "Counts")
 ```
+
+
 ```{r}
 hist(assay(spe, "logcounts") |> as.vector(), breaks = 100, main = "Histogram of logcounts", xlab = "Logcounts")
 ```
@@ -81,22 +83,38 @@ spe |> colData() |> as.data.frame() |>
 ## Subset data
 
 ```{r}
+spe |> colData() |> as.data.frame() |> dplyr::distinct(patient_id, patient_rejection_type, biopsy_timing, resolution_broad) |> 
+  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |> pull(resolution_broad) |> table()
+```
+
+
+```{r}
 set.seed(51773)
 
-# filter to post transplant, cellular rejection 
-# pick 1 random image per patient, then sample 10 of those (one image per person)
+# filter to post transplant, cellular rejection                                                                          
+# randomly pick 1 image per patient
 imageIdx = colData(spe) |> as.data.frame() |>
-  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>                                       
-  distinct(patient_id, Sample, resolution_broad) |>                                                                         
-  group_by(resolution_broad, patient_id) |>
-  slice_sample(n = 1) |>                                                                                                    
-  group_by(resolution_broad) |>                                                                                             
-  slice_sample(prop = 1) |>
-  slice_head(n = 10) |>                                                                                                     
-  pull(Sample)     
+  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>
+  distinct(patient_id, Sample) |>
+  group_by(patient_id) |>
+  slice_sample(n = 1) |>
+  pull(Sample)
 
-speSub = spe[, colData(spe)$Sample %in% imageIdx, ]
+speSub = spe[, spe$Sample %in% imageIdx]
 ```
+
+```{r}
+# rename columns to make it easy
+speSub = speSub |> rename(c("x" = "adj_x_centroid", "y" = "adj_y_centroid", "cellType" = "ct_second_pass",
+                            "imageID" = "Sample", "subject" = "patient_id", "cellID" = "X"))
+
+# set everything to characters
+speSub$imageID = as.character(speSub$imageID)
+speSub$subject = as.character(speSub$subject)
+speSub$cellType = as.character(speSub$cellType)
+```
+
+## Train scClassify model
 
 ```{r eval = F}
 # extract log-normalised expression matrix and existing cell type labels
@@ -113,11 +131,7 @@ model = train_scClassify(exprsMat_train = exprMat,
                          BPPARAM = BiocParallel::MulticoreParam(workers = 20))
 ```
 
-```{r}
-# rename columns to make it easy
-speSub = speSub |> rename(c("x" = "adj_x_centroid", "y" = "adj_y_centroid", "cellType" = "ct_second_pass",
-                            "imageID" = "Sample", "subject" = "patient_id", "cellID" = "X"))
-```
+## Generate weights
 
 ```{r eval = F}
 # extract the wkNN scores (both weights assigned to each cell and the correlation)
@@ -198,6 +212,7 @@ for (foldName in names(cellIdx)) {
 names(weightResults) = c(paste0("fold", 1:5))
 ```
 
+
 ```{r}
 # obtain vote margin
 # vote margin = group test cell neighbours by class, sum the weights within each class
@@ -214,11 +229,6 @@ getVoteMargin = function(topKNN_weight, topKNN) {
     
     # aggregate weights by cell type label
     vote = stats::aggregate(weights, by = list(label = labels), sum)
-    
-    # remove unassigned votes (-1)
-    vote = vote[vote$label != "-1", ]
-    
-    if (nrow(vote) == 0) return(0)  # all neighbours were unassigned
     
     # winning class proportion of total weight
     max(vote$x / sum(vote$x))
@@ -264,6 +274,8 @@ finalConfidence = confidenceDf |>
     nLevels = dplyr::n(),
     confidenceScore = voteMargin[which.max(level)])
 ```
+
+## Obtain predictions
 
 ```{r eval = F}
 # obtain predicted cell type labels
@@ -313,3 +325,27 @@ colData(speSub) = cDat |> DataFrame()
 ```{r}
 hist(finalConfidence$confidenceScore, main = "Histogram of confidence scores", xlab = "Confidence scores")
 ```
+
+## Check images
+
+::: panel-tabset
+```{r results = 'asis'}
+for (i in unique(speSub$imageID)) {
+  cat("#####", i, "\n\n") 
+  
+  p = ggplot(speSub |> colData() |> as.data.frame() |> filter(imageID == i),
+             aes(x = x, y = y, colour = cellType)) +
+    geom_point() +
+    scale_y_reverse() +
+    labs(x = "", y = "", title = i) +
+    theme_minimal()
+  
+  print(p)
+  cat("\n")
+}
+```
+::: 
+
+
+
+

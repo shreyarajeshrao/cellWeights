@@ -7,23 +7,22 @@ editor: visual
 ## Libraries and set up
 
 ```{r message = FALSE, warning = FALSE}
-library(rlang, lib.loc = "/enna/users/stfour/shreyar/Desktop/lib/")
-
-.libPaths("/enna/nobackup/biostat/Rpackages/v4/")
-suppressPackageStartupMessages({
-  library(spicyR)
-  library(SpatialDatasets)
+.libPaths(c("/enna/users/stfour/shreyar/Desktop/lib/", "/enna/nobackup/biostat/Rpackages/v4/"))
+suppressPackageStartupMessages({                                                                                            
+  library(spicyR)    
+  library(SpatialDatasets)                                                                                                  
   library(tidyverse)
-  library(tidySingleCellExperiment)
+  library(tidySingleCellExperiment)                                                                                         
   library(scClassify)
-  library(caret) 
+  library(caret)                                                                                                            
   library(spatstat.geom)
   library(data.table)
   library(Statial)
   library(BiocParallel)
-  library(lme4)
+  library(lme4)                                                                                                             
   library(lmerTest)
-})
+  library(visdat)
+})     
 ```
 
 ```{r}
@@ -31,6 +30,7 @@ load(".RData")
 ```
 
 ## Generate closePairs
+
 
 ```{r}
 # extract cell data
@@ -65,7 +65,7 @@ imageResults = lapply(imageList, function(image) {
     # look up the cell type of the "j" cell
     closePairs$cellTypeJ = cellTypes[closePairs$j]
     
-    # convert i from plain integer index to factor (used later - i is an idex when performing edge correction)
+    # convert i from plain integer index to factor (used later - i is an index when performing edge correction)
     closePairs$i = factor(closePairs$i, levels = imagePPP$marks$cellID)
     closePairs = as.data.table(closePairs)
     
@@ -137,7 +137,24 @@ Lfunc$cellType_pair = paste0(Lfunc$child1, "__", Lfunc$child2)
 head(Lfunc)
 ```
 
-### Mixed-effects models
+```{r}
+vis_miss(Lfunc, cluster = TRUE)
+```
+
+```{r}
+as.data.frame(table(speSub$imageID, speSub$predLabels)) |>                                                                  
+    rename(imageID = Var1, cellType = Var2) |>                                                                                
+    group_by(imageID) |>                                                                                                      
+    ggplot(aes(x = cellType, y = imageID, fill = Freq)) +
+    geom_tile() +                                                                                                             
+    scale_fill_viridis_c() +                                                                                                  
+    theme_classic() +
+    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +                                                                
+    labs(x = "Predicted label", y = "Image", fill = "Proportion") 
+```
+
+ 
+ ### Mixed-effects models
 
 ```{r warning = F, message = F}
 # mixed-effects models for each cell type pair
@@ -175,3 +192,6 @@ noWeightsModels = noWeightsModels |> rename(c(from = child1, to = child2))
 # multiple testing correction
 noWeightsModels$p.adj = p.adjust(noWeightsModels$p.value, method = "BH")
 ```
+
+
+
