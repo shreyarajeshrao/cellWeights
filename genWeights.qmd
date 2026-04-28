@@ -6,18 +6,18 @@ editor: visual
 
 ```{r}
 .libPaths(c("/enna/users/stfour/shreyar/Desktop/lib/", "/enna/nobackup/biostat/Rpackages/v4/"))
-suppressPackageStartupMessages({                                                                                            
+suppressPackageStartupMessages({
   library(spicyR)    
-  library(SpatialDatasets)                                                                                                  
+  library(SpatialDatasets)
   library(tidyverse)
-  library(tidySingleCellExperiment)                                                                                          
+  library(tidySingleCellExperiment)
   library(scClassify)
-  library(caret)                                                                                                            
+  library(caret)
   library(spatstat.geom)
   library(data.table)
   library(Statial)
   library(BiocParallel)
-  library(lme4)                                                                                                             
+  library(lme4)
   library(lmerTest)
   library(visdat)
 }) 
@@ -97,7 +97,7 @@ set.seed(51773)
 # filter to post transplant, cellular rejection                                                                          
 # randomly pick 1 image per patient
 imageIdx = colData(spe) |> as.data.frame() |>
-  filter(biopsy_timing == "post" & biopsy_rejection_type == "cellular_rejection") |>
+  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>
   distinct(patient_id, Sample) |>
   group_by(patient_id) |>
   slice_sample(n = 1) |>
@@ -105,14 +105,6 @@ imageIdx = colData(spe) |> as.data.frame() |>
 
 speSub = spe[, spe$Sample %in% imageIdx]
 ```
-
-```{r}
-speSub$Sample |> unique()
-```
-
-```{r}
-speSub |> colData() |> as.data.frame() |> dplyr::distinct(patient_id) |> table()
-``` 
 
 
 ```{r}
@@ -357,10 +349,6 @@ for (i in unique(speSub$imageID)) {
 }
 ```
 ::: 
-
-```{r}
-speSub$biopsy_rejection_type |> unique()
-```
 
 
 

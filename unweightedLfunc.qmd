@@ -8,18 +8,18 @@ editor: visual
 
 ```{r message = FALSE, warning = FALSE}
 .libPaths(c("/enna/users/stfour/shreyar/Desktop/lib/", "/enna/nobackup/biostat/Rpackages/v4/"))
-suppressPackageStartupMessages({                                                                                            
+suppressPackageStartupMessages({ 
   library(spicyR)    
-  library(SpatialDatasets)                                                                                                  
+  library(SpatialDatasets)
   library(tidyverse)
-  library(tidySingleCellExperiment)                                                                                         
+  library(tidySingleCellExperiment)
   library(scClassify)
-  library(caret)                                                                                                            
+  library(caret)
   library(spatstat.geom)
   library(data.table)
   library(Statial)
   library(BiocParallel)
-  library(lme4)                                                                                                             
+  library(lme4)
   library(lmerTest)
   library(visdat)
 })     
@@ -30,7 +30,6 @@ load(".RData")
 ```
 
 ## Generate closePairs
-
 
 ```{r}
 # extract cell data
@@ -137,23 +136,12 @@ Lfunc$cellType_pair = paste0(Lfunc$child1, "__", Lfunc$child2)
 head(Lfunc)
 ```
 
+
 ```{r}
 vis_miss(Lfunc, cluster = TRUE)
 ```
 
-```{r}
-as.data.frame(table(speSub$imageID, speSub$predLabels)) |>                                                                  
-    rename(imageID = Var1, cellType = Var2) |>                                                                                
-    group_by(imageID) |>                                                                                                      
-    ggplot(aes(x = cellType, y = imageID, fill = Freq)) +
-    geom_tile() +                                                                                                             
-    scale_fill_viridis_c() +                                                                                                  
-    theme_classic() +
-    theme(axis.text.x = element_text(angle = 45, hjust = 1)) +                                                                
-    labs(x = "Predicted label", y = "Image", fill = "Proportion") 
-```
 
- 
  ### Mixed-effects models
 
 ```{r warning = F, message = F}
