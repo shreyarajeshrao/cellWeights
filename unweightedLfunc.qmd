@@ -55,7 +55,7 @@ imageResults = lapply(imageList, function(image) {
     closePairs = spatstat.geom::closepairs(imagePPP, r, what = "ijd", distinct = FALSE) |> data.frame()
     
     # extract cell type vector
-    cellTypes = imagePPP$marks$cellType                                                                                                                           
+    cellTypes = imagePPP$marks$cellType                                                                                                                          
     # add cell ID
     names(cellTypes) = imagePPP$marks$cellID
     
@@ -91,7 +91,7 @@ imageResults = lapply(imageList, function(image) {
 
 ```{r}
 # get all cell type pairs
-cellTypes = unique(cells$cellType)
+cellTypes = unique(cells$predLabels)
 cellTypes = cellTypes[!is.na(cellTypes)]
 pairs = expand.grid(child1 = cellTypes, child2 = cellTypes, stringsAsFactors = FALSE)
 
@@ -136,13 +136,16 @@ Lfunc$cellType_pair = paste0(Lfunc$child1, "__", Lfunc$child2)
 head(Lfunc)
 ```
 
-
 ```{r}
-vis_miss(Lfunc, cluster = TRUE)
+hist(Lfunc$L, main = "Distribution of unweighted L-function", xlab = "L-function")
 ```
 
+```{r}
+# proportion of NA values in calculated L-function
+sum(is.na(Lfunc$L))/nrow(Lfunc)
+```
 
- ### Mixed-effects models
+## Linear models
 
 ```{r warning = F, message = F}
 # mixed-effects models for each cell type pair
@@ -161,7 +164,7 @@ noWeightsModels = lapply(seq_len(nrow(pairList)), function(k) {
     return(data.frame(child1 = child1, child2 = child2, p.value = NA, estimate = NA))
   }
    
-  fit = tryCatch(lmer(L ~ resolution_broad + (1 | subject), data = dat),
+  fit = tryCatch(lm(L ~ resolution_broad, data = dat),
     error = function(e) NULL)
   
   if (is.null(fit)) {

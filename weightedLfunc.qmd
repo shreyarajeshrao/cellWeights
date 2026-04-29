@@ -69,6 +69,7 @@ imageResults = lapply(imageList, function(image) {
 ```{r}
 for (imgID in names(imageResults)) {
   confScores = imageList[[imgID]]$confidenceScore
+  # add centre cell's confidence score
   imageResults[[imgID]]$closePairs$weight = confScores[as.integer(imageResults[[imgID]]$closePairs$i)]
 }
 ```
@@ -116,6 +117,11 @@ LfuncW = merge(LfuncW, cDat, by = "imageID")
 LfuncW$cellType_pair = paste0(LfuncW$child1, "__", LfuncW$child2)
 
 head(LfuncW)
+```
+
+
+```{r}
+hist(LfuncW$L, main = "Distribution of weighted L-function", xlab = "L-function")
 ```
 
 ### Linear models

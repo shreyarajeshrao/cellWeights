@@ -135,6 +135,10 @@ model = train_scClassify(exprsMat_train = exprMat,
                          BPPARAM = BiocParallel::MulticoreParam(workers = 20))
 ```
 
+```{r fig.height = 8, fig.width = 6}
+plotCellTypeTree(model$cutree_list)
+```
+
 ## Generate weights
 
 ```{r eval = F}
