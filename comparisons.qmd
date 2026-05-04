@@ -173,5 +173,13 @@ plotly::ggplotly(p, tooltip = "text")
 
 Two images of interest: Patient_5_4 and Patient_15_1.
 
+For Patient_5_4, the weighting shows avoidance vs unweighted shows co-localisation
+
+```{r}
+speSub |> filter(imageID == "Patient_5_4") |> 
+  ggplot(aes(x = x, y = y, colour = cellType)) +
+  geom_point() +
+  coord_equal()
+```
 
 
