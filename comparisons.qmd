@@ -20,6 +20,8 @@ suppressPackageStartupMessages({
   library(Statial)
   library(BiocParallel)
 })
+
+theme_set(theme_classic())
 ```
 
 ```{r}
@@ -120,9 +122,56 @@ table(tmp$predLabels, tmp$imageID)
 ```{r}
 tmp = speSub |> colData() |> as.data.frame() |> filter(cellType == "SPP1+ Macrophages")
 table(tmp$cellType, tmp$imageID)
+hist(tmp$confidenceScore, main = "Distribution of confidence scores for SPP1+ Macrophages", xlab = "confidence score")
 ```
 
 ```{r}
-tmp$confidenceScore
+speSub |> colData() |> as.data.frame() |> filter(cellType == "SPP1+ Macrophages") |> pull(predLabels) |> table()
 ```
+
+
+These cells got confidently misclassified...
+
+### Mast → Plasma 
+
+```{r}
+comparison |> filter(from == "Mast" & to == "Plasma")
+```
+
+```{r}
+p1 = p1 = combinedLfunc |> filter(child1 == "Mast" & child2 == "Plasma") |>
+  ggplot(aes(x = resolution_broad, y = L)) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(title = "Unweighted L-function", y = "L", x = "Resolution")
+
+p2 = combinedLfunc |> filter(child1 == "Mast" & child2 == "Plasma") |>
+  ggplot(aes(x = resolution_broad, y = weightedL)) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(title = "Weighted L-function", y = "weightedL", x = "Resolution")
+
+gridExtra::grid.arrange(p1, p2, nrow = 1)
+```
+
+
+```{r}
+p = ggplot(combinedLfunc |> filter(child1 == "Mast" & child2 == "Plasma") |>
+             dplyr::mutate(label = paste0(child1, " → ", child2, "\n",
+                                                         "L: ", L, "\n", "weighted L: ", weightedL, "\n",
+                                                         "imageID: ", imageID)), 
+       aes(x = L, y = weightedL, text = label), size = 0.5) +
+  geom_point() +
+  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dotted", alpha = 0.5) +
+  labs(colour = "low accuracy cell type") + 
+  theme_classic()
+
+plotly::ggplotly(p, tooltip = "text")
+```
+
+Two images of interest: Patient_5_4 and Patient_15_1.
+
+
 
