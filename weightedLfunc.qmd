@@ -124,7 +124,7 @@ head(LfuncW)
 hist(LfuncW$L, main = "Distribution of weighted L-function", xlab = "L-function")
 ```
 
-### Linear models
+## Linear models
 
 ```{r warning = F, message = F}
 pairList = dplyr::distinct(LfuncW, child1, child2)

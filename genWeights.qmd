@@ -11,7 +11,6 @@ suppressPackageStartupMessages({
   library(SpatialDatasets)
   library(tidyverse)
   library(tidySingleCellExperiment)
-  library(scClassify)
   library(caret)
   library(spatstat.geom)
   library(data.table)
@@ -21,6 +20,8 @@ suppressPackageStartupMessages({
   library(lmerTest)
   library(visdat)
 }) 
+
+devtools::load_all("../scClassifyWeights/")
 ```
 
 ## EDA
@@ -109,8 +110,14 @@ speSub = spe[, spe$Sample %in% imageIdx]
 
 ```{r}
 # rename columns to make it easy
-speSub = speSub |> rename(c("x" = "adj_x_centroid", "y" = "adj_y_centroid", "cellType" = "ct_second_pass",
-                            "imageID" = "Sample", "subject" = "patient_id", "cellID" = "X"))
+renameMap = c("adj_x_centroid" = "x",
+  "adj_y_centroid" = "y",
+  "ct_second_pass" = "cellType",
+  "Sample" = "imageID",
+  "patient_id" = "subject",
+  "X" = "cellID")
+
+colnames(colData(speSub)) = dplyr::recode(colnames(colData(speSub)), !!!renameMap)
 
 # set everything to characters
 speSub$imageID = as.character(speSub$imageID)
@@ -141,11 +148,9 @@ plotCellTypeTree(model$cutree_list)
 
 ## Generate weights
 
-```{r eval = F}
+```{r eval = F, warning = F, message = F}
 # extract the wkNN scores (both weights assigned to each cell and the correlation)
 # we get 10 weights/correlation values for each cell (k = 10)
-
-devtools::load_all("../scClassifyWeights/")
 
 cellIdx = split(seq_len(ncol(speSub)), cut(seq_len(ncol(speSub)), breaks = 5))
 names(cellIdx) = paste0("fold", seq_along(cellIdx))
@@ -294,13 +299,18 @@ names(cellIdx) = paste0("fold", seq_along(cellIdx))
 
 predResults = lapply(cellIdx, function(idx) {
   exprMatTest = assay(speSub[, idx], "logcounts") |> as("dgCMatrix")
+  is.null(colnames(exprMatTest))
+  anyDuplicated(colnames(exprMatTest))  
   
   pred = predict_scClassify(exprsMat_test = exprMatTest,
                             trainRes = model,
                             algorithm = "WKNN",
                             similarity = "pearson",
-                            cutoff_method = "dynamic",
-                            parallel = TRUE,
+                            prob_threshold = 0,
+                            cor_threshold_static = 0,
+                            cor_threshold_high = 0,
+                            cutoff_method = "static",
+                            parallel = FALSE,
                             BPPARAM = BiocParallel::MulticoreParam(workers = 20),
                             verbose = TRUE)
   return(pred)
@@ -320,6 +330,7 @@ rownames(predLabelsDf) = NULL
 finalConfidence = finalConfidence |>
   dplyr::left_join(predLabelsDf, by = c("cellID"))
 ```
+
 
 ```{r}
 cDat = colData(speSub) |> as.data.frame()

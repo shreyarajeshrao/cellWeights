@@ -5,7 +5,7 @@ editor: visual
 ---
 
 ```{r message = FALSE, warning = FALSE}
-.libPaths("/enna/nobackup/biostat/Rpackages/v4/")
+.libPaths(c("/enna/users/stfour/shreyar/Desktop/lib/", "/enna/nobackup/biostat/Rpackages/v4/"))
 suppressPackageStartupMessages({
   library(lme4)
   library(lmerTest)
@@ -44,10 +44,6 @@ accuracyDf = speSub |> colData() |> as.data.frame() |>
 accuracyDf
 ```
 
-```{r}
-lowAccuracy = accuracyDf |> dplyr::filter(accuracy < 0.6) |> dplyr::pull(cellType)  
-```
-
 ## Comparing weighted vs unweighted coefficients
 
 ```{r}
@@ -56,7 +52,6 @@ comparison = dplyr::full_join(noWeightsModels |> dplyr::rename(estimate_unweight
                               weightsModels |> dplyr::rename(estimate_weighted = estimate, p_weighted = p.value,
                                                              p.adj_weighted = p.adj),
                               by = c("from", "to")) |>
-  dplyr::filter(from %in% lowAccuracy) |>
   dplyr::select(from, to, estimate_unweighted, estimate_weighted, p_unweighted, p.adj_unweighted, p_weighted, p.adj_weighted) |>
   dplyr::arrange(from, to)    
 
@@ -82,7 +77,7 @@ plotly::ggplotly(p, tooltip = "text")
 combinedLfunc = Lfunc
 combinedLfunc$weightedL = LfuncW$L
 
-p = ggplot(combinedLfunc |> filter(child1 %in% lowAccuracy) |>
+p = ggplot(combinedLfunc |>
              dplyr::mutate(label = paste0(child1, " → ", child2, "\n",
                                                          "L: ", L, "\n", "weighted L: ", weightedL, "\n",
                                                          "imageID: ", imageID)), 
@@ -123,35 +118,11 @@ table(tmp$predLabels, tmp$imageID)
 ```
 
 ```{r}
+tmp = speSub |> colData() |> as.data.frame() |> filter(cellType == "SPP1+ Macrophages")
+table(tmp$cellType, tmp$imageID)
+```
+
+```{r}
 tmp$confidenceScore
 ```
-
-### Treg
-
-```{r}
-tmp = speSub |> colData() |> as.data.frame() |> filter(predLabels == "Treg")
-table(tmp$predLabels, tmp$imageID)
-```
-
-```{r}
-hist(tmp$confidenceScore, main = "Distribution of confidence scores for Tregs", xlab = "confidence score")
-```
-
-```{r}
-p = ggplot(combinedLfunc |> filter(child1 == "Treg") |>
-             dplyr::mutate(label = paste0(child1, " → ", child2, "\n",
-                                                         "L: ", L, "\n", "weighted L: ", weightedL, "\n",
-                                                         "imageID: ", imageID)), 
-       aes(x = L, y = weightedL, text = label), size = 0.5) +
-  geom_point() +
-  geom_hline(yintercept = 0, linetype = "dashed", alpha = 0.5) +
-  geom_vline(xintercept = 0, linetype = "dashed", alpha = 0.5) +
-  geom_abline(slope = 1, intercept = 0, linetype = "dotted", alpha = 0.5) + 
-  theme_classic()
-
-plotly::ggplotly(p, tooltip = "text")
-```
-
-### Proliferating T cells
-
 
