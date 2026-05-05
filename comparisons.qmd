@@ -46,6 +46,12 @@ accuracyDf = speSub |> colData() |> as.data.frame() |>
 accuracyDf
 ```
 
+```{r}
+speSub |> colData() |> as.data.frame() |>
+  filter(predLabels == "CD4+ T cells") |> pull(confidenceScore) |> hist()
+```
+
+
 ## Comparing weighted vs unweighted coefficients
 
 ```{r}
@@ -76,7 +82,32 @@ plotly::ggplotly(p, tooltip = "text")
 Cell type pairs whose coefficients got flipped:
 
 ```{r}
-comparison |> filter(estimate_weighted * estimate_unweighted < 0) |> arrange(p.adj_unweighted < 0.05)
+comparison |> filter(estimate_weighted * estimate_unweighted < 0) |> 
+  arrange(desc(abs(estimate_weighted - estimate_unweighted)))
+```
+
+## Accuracy vs L-function
+
+```{r fig.height = 4, fig.width = 12}
+p1 = accuracyDf |>
+    dplyr::rename(child1 = cellType, accuracy_child1 = accuracy) |>
+    dplyr::inner_join(combinedLfunc, by = "child1") |>
+    ggplot(aes(x = accuracy_child1, y = L)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(method = "lm") +
+    labs(x = "Accuracy (from cell type)", y = "L-function", title = "Unweighted L-function") +
+    theme_classic()
+
+p2 = accuracyDf |>
+    dplyr::rename(child1 = cellType, accuracy_child1 = accuracy) |>
+    dplyr::inner_join(combinedLfunc, by = "child1") |>
+    ggplot(aes(x = accuracy_child1, y = weightedL)) +
+    geom_point(alpha = 0.3) +
+    geom_smooth(method = "lm") +
+    labs(x = "Accuracy (from cell type)", y = "L-function", title = "Weighted L-function") +
+    theme_classic()
+
+gridExtra::grid.arrange(p1, p2, nrow = 1)
 ```
 
 
@@ -146,19 +177,15 @@ comparison |> filter(from == "Mast" & to == "Plasma")
 ```
 
 ```{r}
-p1 = p1 = combinedLfunc |> filter(child1 == "Mast" & child2 == "Plasma") |>
-  ggplot(aes(x = resolution_broad, y = L)) +
-  geom_boxplot() +
-  geom_jitter() +
-  labs(title = "Unweighted L-function", y = "L", x = "Resolution")
+Lfunc$resolution_broad |> levels()
+```
 
-p2 = combinedLfunc |> filter(child1 == "Mast" & child2 == "Plasma") |>
-  ggplot(aes(x = resolution_broad, y = weightedL)) +
-  geom_boxplot() +
-  geom_jitter() +
-  labs(title = "Weighted L-function", y = "weightedL", x = "Resolution")
+```{r}
+LfuncW$resolution_broad |> levels()
+```
 
-gridExtra::grid.arrange(p1, p2, nrow = 1)
+```{r}
+ASQW1 
 ```
 
 
@@ -209,6 +236,28 @@ For Patient_15_1, unweighted L-function shows no real interaction vs weighted L 
    scale_alpha_continuous(range = c(0.1, 1)) +
    scale_y_reverse() +
    coord_equal() +
-   labs(x = "", y = "", title = "Patient_5_4", colour = "Cell type", alpha = "Confidence score")
+   labs(x = "", y = "", title = "Patient_15_1", colour = "Cell type", alpha = "Confidence score")
 ```
 
+### CD4+ T cells → pDC
+
+```{r}
+p1 = p1 = combinedLfunc |> filter(child1 == "CD4+ T cells" & child2 == "pDC") |>
+  ggplot(aes(x = resolution_broad, y = L)) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(title = "Unweighted L-function", y = "L", x = "Resolution")
+
+p2 = combinedLfunc |> filter(child1 == "CD4+ T cells" & child2 == "pDC") |>
+  ggplot(aes(x = resolution_broad, y = weightedL)) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(title = "Weighted L-function", y = "weightedL", x = "Resolution")
+
+gridExtra::grid.arrange(p1, p2, nrow = 1)
+```
+
+
+
+bootstrapping, classifier for T cell subsets 
+repeatedly bootstrap each cell and the molecules within each cell with replacement, chuck em into classifier, and get the label. keep doing that, use that instability as a confidence score
