@@ -47,7 +47,6 @@ spe$cav_grade |> unique()
 hist(assay(spe, "counts") |> as.vector(), breaks = 100, main = "Histogram of counts", xlab = "Counts")
 ```
 
-
 ```{r}
 hist(assay(spe, "logcounts") |> as.vector(), breaks = 100, main = "Histogram of logcounts", xlab = "Logcounts")
 ```
@@ -90,8 +89,6 @@ spe |> colData() |> as.data.frame() |>
   pull(resolution_broad) |> table()
 ```
 
-
-
 ```{r}
 set.seed(51773)
 
@@ -106,7 +103,6 @@ imageIdx = colData(spe) |> as.data.frame() |>
 
 speSub = spe[, spe$Sample %in% imageIdx]
 ```
-
 
 ```{r}
 # rename columns to make it easy
@@ -225,7 +221,6 @@ for (foldName in names(cellIdx)) {
 names(weightResults) = c(paste0("fold", 1:5))
 ```
 
-
 ```{r}
 # obtain vote margin
 # vote margin = group test cell neighbours by class, sum the weights within each class
@@ -331,7 +326,6 @@ finalConfidence = finalConfidence |>
   dplyr::left_join(predLabelsDf, by = c("cellID"))
 ```
 
-
 ```{r}
 cDat = colData(speSub) |> as.data.frame()
 cDat = merge(cDat, finalConfidence |> dplyr::select(cellID, confidenceScore, cellType), by = "cellID")
@@ -363,7 +357,4 @@ for (i in unique(speSub$imageID)) {
   cat("\n")
 }
 ```
-::: 
-
-
-
+:::

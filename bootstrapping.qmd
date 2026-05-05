@@ -1,0 +1,40 @@
+---
+title: "Bootstrapping cell labels"
+format: html
+editor: visual
+---
+
+```{r message = FALSE, warning = FALSE}
+.libPaths(c("/enna/users/stfour/shreyar/Desktop/lib/", "/enna/nobackup/biostat/Rpackages/v4/"))
+suppressPackageStartupMessages({
+  library(lme4)
+  library(lmerTest)
+  library(SpatialDatasets)
+  library(tidySingleCellExperiment)
+  library(tidyverse)
+  library(Seurat)
+  library(caret) 
+  library(spatstat.geom)
+  library(data.table)
+  library(Statial)
+  library(BiocParallel)
+})
+
+theme_set(theme_classic())
+```
+
+```{r}
+heartSeurat = readRDS("./data/heartSeurat.rds")   
+heartSeurat
+```
+
+```{r}
+heartSPE = SpatialDatasets::spe_Amancherla_2025()
+```
+
+```{r}
+Tcells = 
+```
+
+
+
