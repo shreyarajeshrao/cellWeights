@@ -73,6 +73,13 @@ p = comparison |>
 plotly::ggplotly(p, tooltip = "text")
 ```
 
+Cell type pairs whose coefficients got flipped:
+
+```{r}
+comparison |> filter(estimate_weighted * estimate_unweighted < 0) |> arrange(p.adj_unweighted < 0.05)
+```
+
+
 ## Comparing weighted vs unweighted L-function
 
 ```{r}
@@ -173,13 +180,35 @@ plotly::ggplotly(p, tooltip = "text")
 
 Two images of interest: Patient_5_4 and Patient_15_1.
 
-For Patient_5_4, the weighting shows avoidance vs unweighted shows co-localisation
+For Patient_5_4, the weighting shows avoidance vs unweighted shows co-localisation. 
 
 ```{r}
-speSub |> filter(imageID == "Patient_5_4") |> 
-  ggplot(aes(x = x, y = y, colour = cellType)) +
-  geom_point() +
-  coord_equal()
+tmp = speSub |> colData() |> as.data.frame()
+
+ ggplot() +
+   geom_point(data = tmp |> filter(imageID == "Patient_5_4" & !predLabels %in% c("Mast", "Plasma")),
+               aes(x = x, y = y), colour = "grey", alpha = 0.3) +
+   geom_point(data = tmp |> filter(imageID == "Patient_5_4" & predLabels %in% c("Mast", "Plasma")),
+              aes(x = x, y = y, colour = predLabels, alpha = confidenceScore)) +
+   scale_colour_manual(values = c("Mast" = "red", "Plasma" = "blue")) +
+   scale_alpha_continuous(range = c(0.1, 1)) +
+   scale_y_reverse() +
+   coord_equal() +
+   labs(x = "", y = "", title = "Patient_5_4", colour = "Cell type", alpha = "Confidence score")
 ```
 
+For Patient_15_1, unweighted L-function shows no real interaction vs weighted L shows avoidance. 
+
+```{r}
+ ggplot() +
+   geom_point(data = tmp |> filter(imageID == "Patient_15_1" & !predLabels %in% c("Mast", "Plasma")),
+               aes(x = x, y = y), colour = "grey", alpha = 0.3) +
+   geom_point(data = tmp |> filter(imageID == "Patient_15_1" & predLabels %in% c("Mast", "Plasma")),
+              aes(x = x, y = y, colour = predLabels, alpha = confidenceScore)) +
+   scale_colour_manual(values = c("Mast" = "red", "Plasma" = "blue")) +
+   scale_alpha_continuous(range = c(0.1, 1)) +
+   scale_y_reverse() +
+   coord_equal() +
+   labs(x = "", y = "", title = "Patient_5_4", colour = "Cell type", alpha = "Confidence score")
+```
 
