@@ -24,17 +24,83 @@ theme_set(theme_classic())
 ```
 
 ```{r}
-heartSeurat = readRDS("./data/heartSeurat.rds")   
-heartSeurat
+seuratObj = readRDS("./data/heartSeurat.rds")   
+seuratObj
 ```
 
 ```{r}
-heartSPE = SpatialDatasets::spe_Amancherla_2025()
+spe = SpatialDatasets::spe_Amancherla_2025()
+spe = spe |> rename(c(cellType = ct_second_pass, x = adj_x_centroid, y = adj_y_centroid, imageID = Sample, subject = patient_id))
+spe$cellType = as.character(spe$cellType)
+spe$imageID = as.character(spe$imageID)
+spe$subject = as.character(spe$subject)
+
+
+# filter to T cells
+Tcells = spe |> filter(cellType %in% c("CD8+ T cells", "CD4+ T cells", "Proliferating T cells", "Treg"))
 ```
 
 ```{r}
-Tcells = 
+hist(assay(Tcells, "counts") |> as.vector(), breaks = 100, main = "Histogram of counts", xlab = "Counts")
+```
+
+```{r}
+hist(assay(Tcells, "logcounts") |> as.vector(), breaks = 100, main = "Histogram of logcounts", xlab = "Logcounts")
+```
+
+```{r}
+# likely went through Seurat's ScaleData pipeline = x-mean/sd, hard capped at 10
+hist(assay(Tcells, "scaledata") |> as.vector(), breaks = 100, main = "Histogram of scaled data", xlab = "Scaled data")
+```
+
+```{r}
+colData(Tcells) |> as.data.frame() |> distinct(subject, imageID, patient_rejection_type, biopsy_rejection_type) |>
+  arrange(subject)
+```
+
+```{r}
+Tcells$subject |> unique()
 ```
 
 
+```{r}
+# whether rejection responded to immunotherapy
+Tcells$resolution_broad |> unique()
+```
+
+```{r}
+# set r = 100 based on the size of these images (50 might be too small?)
+Tcells |> colData() |> as.data.frame() |>
+  dplyr::group_by(imageID) |>
+  dplyr::summarise(max_x = max(x), max_y = max(y)) 
+```
+
+## Subset data
+
+```{r}
+Tcells |> colData() |> as.data.frame() |> 
+  dplyr::distinct(patient_rejection_type, subject, biopsy_timing, resolution_broad) |> 
+  filter(biopsy_timing == "post") |> 
+  pull(resolution_broad) |> table()
+```
+
+
+```{r}
+set.seed(51773)
+
+# filter to post transplant, cellular rejection                                                                          
+# randomly pick 1 image per patient
+imageIdx = colData(Tcells) |> as.data.frame() |>
+  filter(biopsy_timing == "post" & patient_rejection_type == "cellular_rejection") |>
+  distinct(subject, imageID) |>
+  group_by(subject) |>
+  slice_sample(n = 1) |>
+  pull(imageID)
+
+TcellsSub = Tcells[, Tcells$imageID %in% imageIdx]
+```
+
+```{r}
+
+```
 
