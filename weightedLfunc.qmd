@@ -71,7 +71,7 @@ imageResults = lapply(imageList, function(image) {
 ## Calculate L-function (weighted by center cell confidence score)
 
 ```{r}
-cellTypes = unique(cells$cellType)
+cellTypes = unique(cells$majorityLabel)
 cellTypes = cellTypes[!is.na(cellTypes)]
 pairs = expand.grid(child1 = cellTypes, child2 = cellTypes, stringsAsFactors = FALSE)
 
