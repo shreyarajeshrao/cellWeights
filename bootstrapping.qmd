@@ -120,7 +120,7 @@ countMat  = assay(TcellsSub, "counts") |> t() |> as.matrix()
 labels    = TcellsSub$cellType
 scaledMat = t(apply(countMat, 1, scaleCount))
 
-nBoot = 50
+nBoot = 100
 
 RNGkind("L'Ecuyer-CMRG")
 set.seed(51773)
@@ -140,13 +140,29 @@ results = bplapply(seq_len(nBoot), function(b) {
   fit  = MASS::lda(bootMat[, keep], labels)
   as.character(predict(fit, scaledMat[, keep])$class)
 
-}, BPPARAM = MulticoreParam(workers = parallel::detectCores() - 1))
+}, BPPARAM = MulticoreParam(workers = 40, progressbar = TRUE))
 
-predMatrix     = do.call(cbind, results)
+predMatrix = do.call(cbind, results)
 confidenceScore = apply(predMatrix, 1, function(x) max(table(x)) / nBoot)
-majorityLabel   = apply(predMatrix, 1, function(x) names(which.max(table(x))))
+majorityLabel = apply(predMatrix, 1, function(x) names(which.max(table(x))))
 ```
 
+```{r}
+system.time({   
+    bootMat = t(vapply(seq_len(nrow(countMat)), function(i) {                                                                                                                   
+      x     = countMat[i, ]                                                                                                                                                     
+      total = sum(x)                                                                                                                                                            
+      if (total == 0) return(scaleCount(x))                                                                                                                                     
+      resampled = as.numeric(rmultinom(1, total, x / total))
+      scaleCount(resampled)                                                                                                                                                     
+    }, numeric(ncol(countMat))))
+                                                                                                                                                                                
+    colnames(bootMat) = colnames(countMat)
+    keep = apply(bootMat, 2, var) > 0                                                                                                                                           
+    fit  = MASS::lda(bootMat[, keep], labels)                                                                                                                                   
+    predict(fit, scaledMat[, keep])$class                                                                                                                                       
+  })
+```
 
 
 
