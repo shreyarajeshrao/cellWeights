@@ -4,6 +4,8 @@ format: html
 editor: visual
 ---
 
+## Libraries and set up
+
 ```{r message = FALSE, warning = FALSE}
 .libPaths(c("/enna/users/stfour/shreyar/Desktop/lib/", "/enna/nobackup/biostat/Rpackages/v4/"))
 suppressPackageStartupMessages({
@@ -38,7 +40,10 @@ spe$subject = as.character(spe$subject)
 
 # filter to T cells
 Tcells = spe |> filter(cellType %in% c("CD8+ T cells", "CD4+ T cells", "Proliferating T cells", "Treg"))
+Tcells
 ```
+
+## EDA
 
 ```{r}
 hist(assay(Tcells, "counts") |> as.vector(), breaks = 100, main = "Histogram of counts", xlab = "Counts")
@@ -100,7 +105,62 @@ imageIdx = colData(Tcells) |> as.data.frame() |>
 TcellsSub = Tcells[, Tcells$imageID %in% imageIdx]
 ```
 
-```{r}
+## Bootstrapping
 
+```{r}
+set.seed(51773)
+
+countMat = assay(TcellsSub, "counts") |> t() |> as.matrix()
+labels = TcellsSub$cellType
+
+nCells = nrow(countMat)
+nBoot = 10
+predMatrix = matrix(NA_character_, nrow = nCells, ncol = nBoot) 
+
+# function to scale expression after sampling
+scaleCount = function(x) {
+  x = log1p(x / sum(x) * 1e4)
+  s = sd(x)
+  
+  # in case a cell ends up with all 0 counts
+  if (s == 0) return(x - mean(x))
+  (x - mean(x)) / s              
+}  
+
+# scale the training data
+scaledMat = t(apply(countMat, 1, scaleCount))
+
+for (b in seq_len(nBoot)) {
+  cat("Bootstrap", b, "/", nBoot, "\n")
+  
+  # resample transcripts
+  bootMat = t(vapply(seq_len(nrow(countMat)), function(i) {
+    x = countMat[i, ]
+    total = sum(x)
+    
+    if (total == 0) return(scaleCount(x))
+
+    # simulates randomly drawing total transcripts from the cell 
+    # where each transcript's probability of being drawn is proportional to its observed count
+    resampled = as.numeric(rmultinom(1, total, x / total))
+    scaleCount(resampled)
+    }, numeric(ncol(countMat))))
+  
+  # add back column names (genes)
+  colnames(bootMat) = colnames(countMat)
+  
+  # remove cells with 0 variance (LDA drops them anyway)
+  keep = apply(bootMat, 2, var) > 0
+  
+  # train LDA on perturbed scaled data, predict on original scaled data
+  fit = MASS::lda(bootMat[, keep], labels)
+  predMatrix[, b] = as.character(predict(fit, scaledMat[, keep])$class)                                                                                                               
+} 
+
+confidenceScore = apply(predMatrix, 1, function(x) max(table(x)) / nBoot) 
+majorityLabel = apply(predMatrix, 1, function(x) names(which.max(table(x))))
 ```
+
+
+
 
