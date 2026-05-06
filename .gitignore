@@ -4,3 +4,7 @@
 .Ruserdata
 data
 .positai
+.DS_Store
+scClassifyWeights
+TcellsSub.rds
+bootstrap.RData

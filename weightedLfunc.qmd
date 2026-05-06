@@ -1,0 +1,155 @@
+---
+title: "Calculating L-function (weighted)"
+format: html
+editor: visual
+---
+
+## Libraries and set up
+
+```{r message = FALSE, warning = FALSE}
+# .libPaths(c("/enna/users/stfour/shreyar/Desktop/lib/", "/enna/nobackup/biostat/Rpackages/v4/"))
+suppressPackageStartupMessages({
+  library(spicyR)
+  library(SpatialDatasets)
+  library(tidyverse)
+  library(tidySingleCellExperiment)
+  library(spatstat.geom)
+  library(data.table)
+  library(Statial)
+  library(BiocParallel)
+  library(lme4)
+  library(lmerTest)
+})
+```
+
+```{r eval = F}
+load("bootstrap.RData")
+```
+
+## Generate closePairs
+
+```{r}
+cells = colData(TcellsSub) |> as.data.frame()
+
+imageList = split(cells, cells$imageID)
+
+r = 100
+
+imageResults = lapply(imageList, function(image) {
+  image$cellID = factor(seq_len(nrow(image)))
+  ow = Statial::makeWindow(image, window = "square")
+
+  imagePPP = spatstat.geom::ppp(x = image$x,
+    y = image$y,
+    window = ow,
+    marks = data.frame(cellType = image$majorityLabel, cellID = image$cellID,
+                       confidenceScore = image$confidenceScore))
+
+  closePairs = spatstat.geom::closepairs(imagePPP, r, what = "ijd", distinct = FALSE) |> data.frame()
+
+  cellTypes = imagePPP$marks$cellType
+  names(cellTypes) = imagePPP$marks$cellID
+
+  closePairs$cellTypeI = cellTypes[closePairs$i]
+  closePairs$cellTypeJ = cellTypes[closePairs$j]
+
+  closePairs$i = factor(closePairs$i, levels = imagePPP$marks$cellID)
+  closePairs = as.data.table(closePairs)
+
+  edge = Statial:::.borderEdge(imagePPP, r)
+  edge = data.frame(i = factor(imagePPP$marks$cellID, levels = imagePPP$marks$cellID),
+                    edge = 1 / edge,
+                    confidenceScore = imagePPP$marks$confidenceScore)
+
+  closePairs = dplyr::left_join(closePairs, edge[, c("i", "edge", "confidenceScore")], by = "i")
+
+  list(closePairs = closePairs,
+       area = spatstat.geom::area(imagePPP))
+})
+```
+
+## Calculate L-function (weighted by center cell confidence score)
+
+```{r}
+cellTypes = unique(cells$cellType)
+cellTypes = cellTypes[!is.na(cellTypes)]
+pairs = expand.grid(child1 = cellTypes, child2 = cellTypes, stringsAsFactors = FALSE)
+
+LfuncW = bplapply(names(imageResults), function(imgID) {
+  closePairs = imageResults[[imgID]]$closePairs
+  area       = imageResults[[imgID]]$area
+
+  # weight edge correction by confidence score of center cell (i)
+  counts = closePairs[, .(n = sum(edge * confidenceScore)), by = .(i, cellTypeI, cellTypeJ)]
+  counts = dcast(counts, i + cellTypeI ~ cellTypeJ, value.var = "n", fill = 0)
+
+  pairResults = lapply(seq_len(nrow(pairs)), function(k) {
+    child1 = pairs$child1[k]
+    child2 = pairs$child2[k]
+
+    if (!child1 %in% closePairs$cellTypeI | !child2 %in% closePairs$cellTypeJ) {
+      return(data.frame(imageID = imgID, child1 = child1, child2 = child2, L = NA))
+    }
+
+    L = Statial:::.Lfunction(closePairs, counts, child1, child2, r, area)
+    data.frame(imageID = imgID, child1 = child1, child2 = child2, L = L)
+  })
+  dplyr::bind_rows(pairResults)
+
+}, BPPARAM = MulticoreParam(workers = 20))
+
+LfuncW = dplyr::bind_rows(LfuncW)
+```
+
+```{r}
+cDat = colData(TcellsSub) |> as.data.frame() |>
+  dplyr::distinct(subject, imageID, biopsy_rejection_type, biopsy_timing,
+                  patient_rejection_type, resolution_broad)
+
+LfuncW = merge(LfuncW, cDat, by = "imageID")
+LfuncW$cellType_pair = paste0(LfuncW$child1, "__", LfuncW$child2)
+
+head(LfuncW)
+```
+
+```{r}
+hist(LfuncW$L, main = "Distribution of weighted L-function", xlab = "L-function")
+```
+
+```{r}
+sum(is.na(LfuncW$L)) / nrow(LfuncW)
+```
+
+## Linear models
+
+```{r warning = FALSE, message = FALSE}
+pairList = dplyr::distinct(LfuncW, child1, child2)
+
+weightsModels = lapply(seq_len(nrow(pairList)), function(k) {
+  child1 = pairList$child1[k]
+  child2 = pairList$child2[k]
+
+  dat = LfuncW |>
+    dplyr::filter(child1 == !!child1, child2 == !!child2) |>
+    dplyr::filter(!is.na(L), !is.na(resolution_broad))
+
+  if (length(unique(dat$resolution_broad)) < 2 | nrow(dat) < 5) {
+    return(data.frame(child1 = child1, child2 = child2, p.value = NA, estimate = NA))
+  }
+
+  fit = tryCatch(lm(L ~ resolution_broad, data = dat),
+    error = function(e) NULL)
+
+  if (is.null(fit)) {
+    return(data.frame(child1 = child1, child2 = child2, p.value = NA, estimate = NA))
+  }
+
+  coef = summary(fit)$coefficients
+  data.frame(child1 = child1, child2 = child2,
+             estimate = coef[2, "Estimate"], p.value = coef[2, "Pr(>|t|)"])
+})
+
+weightsModels = dplyr::bind_rows(weightsModels)
+weightsModels = weightsModels |> dplyr::rename(from = child1, to = child2)
+weightsModels$p.adj = p.adjust(weightsModels$p.value, method = "BH")
+```
